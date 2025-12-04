@@ -141,6 +141,12 @@ func (c *Client) BatchQuery(pkgs []struct {
 // CalculateRiskScore computes a risk score based on severity and context.
 // Returns a value 0-100.
 func CalculateRiskScore(severity models.Severity, inProduction bool) int {
+	return CalculateRiskScoreWithDepth(severity, inProduction, 0)
+}
+
+// CalculateRiskScoreWithDepth computes risk score with supply chain depth modifier.
+// depth: 0 = direct, 1 = transitive (1 level), 2 = deeper, etc.
+func CalculateRiskScoreWithDepth(severity models.Severity, inProduction bool, depth int) int {
 	baseScore := map[models.Severity]int{
 		models.Critical: 90,
 		models.High:     70,
@@ -164,5 +170,41 @@ func CalculateRiskScore(severity models.Severity, inProduction bool) int {
 		score = (score * 60) / 100
 	}
 
+	// Supply chain modifier: reduce score for deeper transitive deps
+	// Direct (depth 0): no change
+	// Transitive (depth 1+): reduce by 10% per level
+	if depth > 0 {
+		reduction := 10 * depth
+		if reduction > 40 {
+			reduction = 40 // cap at 40% reduction
+		}
+		score = (score * (100 - reduction)) / 100
+	}
+
 	return score
+}
+
+// ScanGraphVulnerabilities scans all nodes in dependency graph against OSV API.
+func (c *Client) ScanGraphVulnerabilities(graph *models.DependencyGraph) error {
+	for _, node := range graph.Nodes {
+		vulns, err := c.Query(node.Name, node.Version)
+		if err != nil {
+			// Log but continue
+			continue
+		}
+
+		// Calculate risk scores with depth modifier
+		for i := range vulns {
+			vulns[i].RiskScore = CalculateRiskScoreWithDepth(
+				vulns[i].Severity,
+				node.Type == models.Production,
+				node.Depth,
+			)
+		}
+
+		// Store vulnerabilities in node
+		node.Vulnerabilities = vulns
+	}
+
+	return nil
 }

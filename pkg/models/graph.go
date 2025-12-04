@@ -2,13 +2,14 @@ package models
 
 // DependencyNode reprezentuje pojedynczy package w dependency tree.
 type DependencyNode struct {
-	Name     string
-	Version  string
-	Type     DependencyType // production or development
-	Direct   bool           // czy to direct dependency czy transitive
-	Depth    int            // 0 = direct, 1 = dependency of direct, etc.
-	Parents  []string       // slice of "name@version" which depend on this
-	Children []string       // slice of "name@version" this depends on
+	Name             string
+	Version          string
+	Type             DependencyType      // production or development
+	Direct           bool                // czy to direct dependency czy transitive
+	Depth            int                 // 0 = direct, 1 = dependency of direct, etc.
+	Parents          []string            // slice of "name@version" which depend on this
+	Children         []string            // slice of "name@version" this depends on
+	Vulnerabilities  []Vulnerability     // CVEs for this package
 }
 
 // DependencyGraph reprezentuje pełny dependency tree.
@@ -128,4 +129,61 @@ func (g *DependencyGraph) GetAllTransitiveDeps() []*DependencyNode {
 		}
 	}
 	return result
+}
+
+// GetAllVulnerableNodes zwraca wszystkie nodes z podatnościami.
+func (g *DependencyGraph) GetAllVulnerableNodes() []*DependencyNode {
+	var result []*DependencyNode
+	for _, node := range g.Nodes {
+		if len(node.Vulnerabilities) > 0 {
+			result = append(result, node)
+		}
+	}
+	return result
+}
+
+// GetVulnerableNodesByDepth zwraca vulnerable nodes pogrupowane po Depth.
+func (g *DependencyGraph) GetVulnerableNodesByDepth() map[int][]*DependencyNode {
+	result := make(map[int][]*DependencyNode)
+	for _, node := range g.Nodes {
+		if len(node.Vulnerabilities) > 0 {
+			result[node.Depth] = append(result[node.Depth], node)
+		}
+	}
+	return result
+}
+
+// VulnerabilityPath reprezentuje ścieżkę od root do vulnerable package'u.
+type VulnerabilityPath struct {
+	Package        string         // name@version vulnerable
+	Vulnerability  Vulnerability
+	PathFromRoot   []string       // chain: ["direct@1.0.0", "transitive@2.0.0", "vulnerable@3.0.0"]
+	Depth          int
+	IsProduction   bool
+}
+
+// GetVulnerabilityPaths zwraca wszystkie paths do vulnerable packages.
+func (g *DependencyGraph) GetVulnerabilityPaths() []VulnerabilityPath {
+	var paths []VulnerabilityPath
+
+	for nodeKey, node := range g.Nodes {
+		if len(node.Vulnerabilities) == 0 {
+			continue
+		}
+
+		// Get path from root to this node
+		pathFromRoot := g.GetVulnerablePath(nodeKey)
+
+		for _, vuln := range node.Vulnerabilities {
+			paths = append(paths, VulnerabilityPath{
+				Package:       nodeKey,
+				Vulnerability: vuln,
+				PathFromRoot:  pathFromRoot,
+				Depth:         node.Depth,
+				IsProduction:  node.Type == Production,
+			})
+		}
+	}
+
+	return paths
 }
