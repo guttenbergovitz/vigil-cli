@@ -64,7 +64,7 @@ func cmdScan(args []string) error {
 	}
 
 	// Find lock file
-	lockFile, err := scanner.FindLockFile(absPath)
+	lockFile, lockType, err := scanner.FindLockFile(absPath)
 	if err != nil {
 		return err
 	}
@@ -77,14 +77,14 @@ func cmdScan(args []string) error {
 		return fmt.Errorf("hash lock file: %w", err)
 	}
 
-	// Parse lock file
+	// Parse lock file (auto-detect format)
 	lockf, err := os.Open(lockFilePath)
 	if err != nil {
 		return fmt.Errorf("open lock file: %w", err)
 	}
 	defer lockf.Close()
 
-	deps, err := scanner.ParseNPMLock(lockf)
+	deps, err := scanner.ParseLockFile(lockf, lockType)
 	if err != nil {
 		return fmt.Errorf("parse lock file: %w", err)
 	}
