@@ -103,16 +103,25 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 
 	var vulns []models.Vulnerability
 	for _, v := range queryResp.Vulns {
-		// Extract severity - can be string, array, or object
+		// Extract severity with fallback to CVSS BaseSeverity
 		sev := extractSeverity(v.Severity)
+		if sev == "" && v.CVSSv3 != nil && v.CVSSv3.BaseSeverity != "" {
+			sev = models.Severity(strings.ToLower(v.CVSSv3.BaseSeverity))
+		}
+		if sev == "" && v.CVSSv2 != nil && v.CVSSv2.Score > 0 {
+			// Derive severity from CVSS v2 score
+			sev = deriveSeverityFromCVSSv2(v.CVSSv2.Score)
+		}
 		if sev == "" {
 			sev = models.Medium
 		}
 
 		// Extract CVSS score
 		var cvssScore float64
+		var cvssVector string
 		if v.CVSSv3 != nil && v.CVSSv3.Score > 0 {
 			cvssScore = v.CVSSv3.Score
+			cvssVector = v.CVSSv3.Vector
 		} else if v.CVSSv2 != nil && v.CVSSv2.Score > 0 {
 			cvssScore = v.CVSSv2.Score
 		}
@@ -140,10 +149,11 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 			Description: v.Details,
 			Severity:    sev,
 			CVSSScore:   cvssScore,
+			CVSSVector:  cvssVector,
 			References:  refs,
 			PublishedAt: published,
 			ModifiedAt:  modified,
-			Sources:     []string{"osv"},
+			Sources:     extractSourcesFromID(v.ID),
 		}
 
 		vulns = append(vulns, vuln)
@@ -282,4 +292,40 @@ func extractSeverity(sev interface{}) models.Severity {
 	}
 
 	return ""
+}
+
+// deriveSeverityFromCVSSv2 derives severity level from CVSS v2 score.
+// CVSS v2 uses 0-10 scale:
+// 0-3.9: Low
+// 4.0-6.9: Medium
+// 7.0-10.0: High/Critical
+func deriveSeverityFromCVSSv2(score float64) models.Severity {
+	switch {
+	case score >= 9.0:
+		return models.Critical
+	case score >= 7.0:
+		return models.High
+	case score >= 4.0:
+		return models.Medium
+	default:
+		return models.Low
+	}
+}
+
+// extractSourcesFromID extracts vulnerability sources based on ID format.
+// CVE IDs start with "CVE-"
+// GHSA IDs start with "GHSA-" and are GitHub Security Advisories
+// Returns a list of detected sources
+func extractSourcesFromID(id string) []string {
+	sources := []string{"osv"} // OSV is always the aggregator
+
+	if strings.HasPrefix(id, "CVE-") {
+		// CVE identifiers come from NVD/MITRE
+		sources = append(sources, "nvd", "mitre")
+	} else if strings.HasPrefix(id, "GHSA-") {
+		// GHSA identifiers are from GitHub
+		sources = append(sources, "github")
+	}
+
+	return sources
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
@@ -50,6 +49,7 @@ func cmdScan(args []string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	skipDevDeps := fs.Bool("skip-devdeps", false, "Skip development dependencies")
 	outputFmt := fs.String("output", "", "Output format (json, csv, markdown)")
+	noTUI := fs.Bool("no-tui", false, "Disable interactive TUI (useful for CI/testing)")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -70,7 +70,7 @@ func cmdScan(args []string) error {
 	// Find lock file
 	lockFile, lockType, err := scanner.FindLockFile(absPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("no lock file found in %s: %w\n\nSupported lock files: package-lock.json (npm), yarn.lock (yarn), pnpm-lock.yaml (pnpm)", absPath, err)
 	}
 
 	lockFilePath := filepath.Join(absPath, lockFile)
@@ -81,14 +81,19 @@ func cmdScan(args []string) error {
 		return fmt.Errorf("hash lock file: %w", err)
 	}
 
-	// Create Bubbletea model for progress display
-	model := ui.NewModel()
-	program := tea.NewProgram(model)
-
 	// Channel for scan results
 	resultChan := make(chan *models.ScanResult, 1)
 	errorChan := make(chan error, 1)
 	var wg sync.WaitGroup
+
+	var program *tea.Program
+	var finalModel tea.Model
+
+	if !*noTUI {
+		// Create Bubbletea model for progress display with alt screen
+		model := ui.NewModel()
+		program = tea.NewProgram(model, tea.WithAltScreen())
+	}
 
 	// Start scanning in goroutine
 	wg.Add(1)
@@ -102,31 +107,66 @@ func cmdScan(args []string) error {
 		}
 	}()
 
-	// Run TUI
-	finalModel, err := program.Run()
-	if err != nil {
-		return fmt.Errorf("TUI error: %w", err)
+	// Run TUI if enabled
+	if !*noTUI {
+		var err error
+		finalModel, err = program.Run()
+		if err != nil {
+			return fmt.Errorf("TUI error: %w", err)
+		}
+	} else {
+		// In non-TUI mode, just print progress to stdout
+		fmt.Println("Scanning...")
 	}
 
-	// Wait for scan to complete
-	wg.Wait()
+	// Wait for scan to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 
-	// Check for scan errors
+	// Check for scan errors or results
 	select {
 	case err := <-errorChan:
 		return err
 	case result := <-resultChan:
 		// Handle result
-		return handleScanResult(result, *outputFmt, finalModel.(ui.Model))
+		var model ui.Model
+		if finalModel != nil {
+			model = finalModel.(ui.Model)
+		}
+		return handleScanResult(result, *outputFmt, model)
+	case <-done:
+		// Scan completed but no result was sent
+		return fmt.Errorf("scan completed with no results")
+	case <-time.After(5 * time.Minute):
+		return fmt.Errorf("scan timeout: took longer than 5 minutes")
+	}
+}
+
+// sendToTUI sends a message to the TUI program if it exists
+func sendToTUI(program *tea.Program, msg tea.Msg) {
+	if program != nil {
+		program.Send(msg)
 	}
 }
 
 // performScan runs the actual scanning with progress updates
 func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, lockFilePath string, skipDevDeps bool, program *tea.Program) (*models.ScanResult, error) {
+	// Check if lock file path is valid
+	if lockFilePath == "" || lockFile == "" {
+		errMsg := "No lock file found. Please run this in a Node.js/TypeScript project with package-lock.json, yarn.lock, or pnpm-lock.yaml"
+		sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+		return nil, fmt.Errorf(errMsg)
+	}
+
 	// Parse lock file and build dependency graph
 	lockf, err := os.Open(lockFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("open lock file: %w", err)
+		errMsg := fmt.Sprintf("Failed to open lock file: %v", err)
+		sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+		return nil, fmt.Errorf(errMsg)
 	}
 	defer lockf.Close()
 
@@ -135,17 +175,23 @@ func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHa
 	if lockType == scanner.PnpmLock {
 		graph, err = scanner.ParsePnpmLockGraph(lockf)
 		if err != nil {
-			return nil, fmt.Errorf("parse lock file graph: %w", err)
+			errMsg := fmt.Sprintf("Failed to parse pnpm-lock.yaml: %v", err)
+			sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+			return nil, fmt.Errorf(errMsg)
 		}
 	} else {
 		deps, err := scanner.ParseLockFile(lockf, lockType)
 		if err != nil {
-			return nil, fmt.Errorf("parse lock file: %w", err)
+			errMsg := fmt.Sprintf("Failed to parse lock file: %v", err)
+			sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+			return nil, fmt.Errorf(errMsg)
 		}
 
 		depTree, err := scanner.BuildDependencyTree(deps)
 		if err != nil {
-			return nil, fmt.Errorf("build tree: %w", err)
+			errMsg := fmt.Sprintf("Failed to build dependency tree: %v", err)
+			sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+			return nil, fmt.Errorf(errMsg)
 		}
 
 		graph = models.NewDependencyGraph()
@@ -156,87 +202,100 @@ func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHa
 		graph.CalculateDepths()
 	}
 
-	// Scan all dependencies with worker pool for parallelization
-	osvClient := osv.New("https://api.osv.dev/v1/query", 10)
-
-	// Create worker pool (number of workers = CPU cores or default to 4)
-	numWorkers := 4
-	if nc := runtime.NumCPU(); nc > 1 {
-		numWorkers = nc
+	// Check if graph has any nodes
+	if len(graph.Nodes) == 0 {
+		errMsg := "No dependencies found in lock file. The project may have no dependencies or the lock file is empty."
+		sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+		return nil, fmt.Errorf(errMsg)
 	}
 
-	pool := scanner.NewWorkerPool(numWorkers, osvClient)
-	pool.Start()
+	// Scan all dependencies sequentially to respect API rate limits
+	osvClient := osv.New("https://api.osv.dev/v1/query", 10)
 
-	// Count nodes to scan
+	// Count nodes to scan and collect them
 	nodesToScan := 0
+	var nodesToScanList []*models.DependencyNode
 	for _, node := range graph.Nodes {
 		if skipDevDeps && node.Type == models.Development {
 			continue
 		}
 		nodesToScan++
+		nodesToScanList = append(nodesToScanList, node)
 	}
 
-	// Submit jobs to worker pool
-	for _, node := range graph.Nodes {
-		if skipDevDeps && node.Type == models.Development {
-			continue
-		}
-		pool.Submit(scanner.ScanJob{Node: node})
-	}
+	fmt.Fprintf(os.Stderr, "DEBUG: Will scan %d nodes sequentially\n", nodesToScan)
 
-	// Close job channel and wait for results
-	pool.Close()
+	// Send initial progress with total
+	sendToTUI(program, ui.ProgressMsg{
+		Progress: ui.ScanProgress{
+			Current:      0,
+			Total:        nodesToScan,
+			CurrentPkg:   "Starting scan...",
+			CurrentVulns: 0,
+		},
+	})
 
-	// Process results as they come in
 	totalVulns := 0
-	current := 0
 
-	for result := range pool.Results() {
-		current++
-
+	// Scan packages sequentially
+	for current, node := range nodesToScanList {
 		// Send progress update
-		program.Send(ui.ProgressMsg{
+		sendToTUI(program, ui.ProgressMsg{
 			Progress: ui.ScanProgress{
-				Current:      current,
+				Current:      current + 1,
 				Total:        nodesToScan,
-				CurrentPkg:   result.Node.Name + "@" + result.Node.Version,
+				CurrentPkg:   node.Name + "@" + node.Version,
 				CurrentVulns: totalVulns,
 			},
 		})
 
-		if result.Error != nil {
+		// Query OSV API for this package
+		vulns, err := osvClient.Query(node.Name, node.Version)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "DEBUG: Error scanning %s@%s: %v\n", node.Name, node.Version, err)
 			continue
 		}
 
-		vulns := result.Vulnerabilities
+		// Process vulnerabilities
 		for j := range vulns {
 			vulns[j].RiskScore = osv.CalculateRiskScoreWithDepth(
 				vulns[j].Severity,
-				result.Node.Type == models.Production,
-				result.Node.Depth,
+				node.Type == models.Production,
+				node.Depth,
 			)
 
+			// Get parent dependency for tree visualization
+			parentDep := ""
+			if len(node.Parents) > 0 {
+				parentDep = node.Parents[0] // Use first parent
+			}
+
 			// Send vulnerability to TUI for dynamic display
-			program.Send(ui.VulnMsg{
+			sendToTUI(program, ui.VulnMsg{
 				Entry: ui.VulnEntry{
-					Package:  result.Node.Name + "@" + result.Node.Version,
-					CVE:      vulns[j].ID,
-					Severity: string(vulns[j].Severity),
-					CVSS:     vulns[j].CVSSScore,
+					Package:      node.Name + "@" + node.Version,
+					CVE:          vulns[j].ID,
+					Severity:     string(vulns[j].Severity),
+					CVSS:         vulns[j].CVSSScore,
+					Description:  vulns[j].Summary,
+					DependencyOf: parentDep,
 				},
 			})
 		}
 
-		result.Node.Vulnerabilities = vulns
+		node.Vulnerabilities = vulns
 		totalVulns += len(vulns)
+
+		// Be respectful to the API - add a small delay between requests
+		// This helps avoid rate limiting
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	// Build result
 	result := buildScanResultFromGraph(absPath, lockFile, lockHash, graph)
 
 	// Send completion with results
-	program.Send(ui.DoneMsg{
+	sendToTUI(program, ui.DoneMsg{
 		Result: &ui.ScanResult{
 			TotalVulns:    result.TotalVulns,
 			CriticalVulns: result.CriticalVulns,
@@ -463,11 +522,26 @@ func reportText(result *models.ScanResult, out *os.File) error {
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
 					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
 					if vuln.CVSSScore > 0 {
-						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0\n", vuln.CVSSScore)
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0", vuln.CVSSScore)
+						if vuln.CVSSVector != "" {
+							fmt.Fprintf(out, " %s", vuln.CVSSVector)
+						}
+						fmt.Fprintf(out, "\n")
 					}
-					fmt.Fprintf(out, "│   └── %s\n", vuln.Summary)
+					fmt.Fprintf(out, "│   ├── Summary: %s\n", vuln.Summary)
+					if vuln.Description != "" && vuln.Description != vuln.Summary {
+						fmt.Fprintf(out, "│   ├── Description: %s\n", truncateText(vuln.Description, 100))
+					}
+					if len(vuln.References) > 0 {
+						fmt.Fprintf(out, "│   ├── References:\n")
+						for i, ref := range vuln.References {
+							if i < 3 { // Show first 3 references
+								fmt.Fprintf(out, "│   │   └── %s\n", ref)
+							}
+						}
+					}
 					if vuln.RiskScore > 0 {
-						fmt.Fprintf(out, "│       Risk Score: %d/100\n", vuln.RiskScore)
+						fmt.Fprintf(out, "│   └── Risk Score: %d/100\n", vuln.RiskScore)
 					}
 				}
 			}
@@ -487,7 +561,15 @@ func reportText(result *models.ScanResult, out *os.File) error {
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
 					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
 					if vuln.CVSSScore > 0 {
-						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0\n", vuln.CVSSScore)
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0", vuln.CVSSScore)
+						if vuln.CVSSVector != "" {
+							fmt.Fprintf(out, " %s", vuln.CVSSVector)
+						}
+						fmt.Fprintf(out, "\n")
+					}
+					fmt.Fprintf(out, "│   ├── Summary: %s\n", vuln.Summary)
+					if vuln.Description != "" && vuln.Description != vuln.Summary {
+						fmt.Fprintf(out, "│   ├── Description: %s\n", truncateText(vuln.Description, 100))
 					}
 					if vuln.RiskScore > 0 {
 						fmt.Fprintf(out, "│   └── Risk Score: %d/100\n", vuln.RiskScore)
@@ -510,7 +592,15 @@ func reportText(result *models.ScanResult, out *os.File) error {
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
 					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
 					if vuln.CVSSScore > 0 {
-						fmt.Fprintf(out, "│   └── CVSS: %.1f/10.0\n", vuln.CVSSScore)
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0", vuln.CVSSScore)
+						if vuln.CVSSVector != "" {
+							fmt.Fprintf(out, " %s", vuln.CVSSVector)
+						}
+						fmt.Fprintf(out, "\n")
+					}
+					fmt.Fprintf(out, "│   ├── Summary: %s\n", vuln.Summary)
+					if vuln.Description != "" && vuln.Description != vuln.Summary {
+						fmt.Fprintf(out, "│   └── Description: %s\n", truncateText(vuln.Description, 100))
 					}
 				}
 			}
@@ -530,8 +620,13 @@ func reportText(result *models.ScanResult, out *os.File) error {
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
 					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
 					if vuln.CVSSScore > 0 {
-						fmt.Fprintf(out, "│   └── CVSS: %.1f/10.0\n", vuln.CVSSScore)
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0", vuln.CVSSScore)
+						if vuln.CVSSVector != "" {
+							fmt.Fprintf(out, " %s", vuln.CVSSVector)
+						}
+						fmt.Fprintf(out, "\n")
 					}
+					fmt.Fprintf(out, "│   └── Summary: %s\n", vuln.Summary)
 				}
 			}
 		}
@@ -698,4 +793,12 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *mod
 	}
 
 	return result
+}
+
+// truncateText limits text length and adds ellipsis if needed
+func truncateText(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "…"
 }
