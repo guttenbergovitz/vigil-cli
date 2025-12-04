@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/guttenbergovitz/vigil-cli/internal/osv"
 	"github.com/guttenbergovitz/vigil-cli/internal/scanner"
+	"github.com/guttenbergovitz/vigil-cli/internal/ui"
 	"github.com/guttenbergovitz/vigil-cli/pkg/export"
 	"github.com/guttenbergovitz/vigil-cli/pkg/models"
 )
@@ -77,34 +80,73 @@ func cmdScan(args []string) error {
 		return fmt.Errorf("hash lock file: %w", err)
 	}
 
-	// Parse lock file and build dependency graph (supply chain analysis)
+	// Create Bubbletea model for progress display
+	model := ui.NewModel()
+	program := tea.NewProgram(model)
+
+	// Channel for scan results
+	resultChan := make(chan *models.ScanResult, 1)
+	errorChan := make(chan error, 1)
+	var wg sync.WaitGroup
+
+	// Start scanning in goroutine
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result, err := performScan(absPath, lockFile, lockType, lockHash, lockFilePath, *skipDevDeps, program)
+		if err != nil {
+			errorChan <- err
+		} else {
+			resultChan <- result
+		}
+	}()
+
+	// Run TUI
+	finalModel, err := program.Run()
+	if err != nil {
+		return fmt.Errorf("TUI error: %w", err)
+	}
+
+	// Wait for scan to complete
+	wg.Wait()
+
+	// Check for scan errors
+	select {
+	case err := <-errorChan:
+		return err
+	case result := <-resultChan:
+		// Handle result
+		return handleScanResult(result, *outputFmt, finalModel.(ui.Model))
+	}
+}
+
+// performScan runs the actual scanning with progress updates
+func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, lockFilePath string, skipDevDeps bool, program *tea.Program) (*models.ScanResult, error) {
+	// Parse lock file and build dependency graph
 	lockf, err := os.Open(lockFilePath)
 	if err != nil {
-		return fmt.Errorf("open lock file: %w", err)
+		return nil, fmt.Errorf("open lock file: %w", err)
 	}
 	defer lockf.Close()
 
 	var graph *models.DependencyGraph
 
-	// Use graph parser for pnpm (includes transitive deps), flat parser for npm
 	if lockType == scanner.PnpmLock {
 		graph, err = scanner.ParsePnpmLockGraph(lockf)
 		if err != nil {
-			return fmt.Errorf("parse lock file graph: %w", err)
+			return nil, fmt.Errorf("parse lock file graph: %w", err)
 		}
 	} else {
-		// For npm/yarn, build flat dependency tree and convert
 		deps, err := scanner.ParseLockFile(lockf, lockType)
 		if err != nil {
-			return fmt.Errorf("parse lock file: %w", err)
+			return nil, fmt.Errorf("parse lock file: %w", err)
 		}
 
 		depTree, err := scanner.BuildDependencyTree(deps)
 		if err != nil {
-			return fmt.Errorf("build tree: %w", err)
+			return nil, fmt.Errorf("build tree: %w", err)
 		}
 
-		// Convert flat list to graph (simple case - no transitive)
 		graph = models.NewDependencyGraph()
 		for _, dep := range depTree {
 			graph.AddNode(dep.Name, dep.Version, dep.Type, true)
@@ -113,23 +155,34 @@ func cmdScan(args []string) error {
 		graph.CalculateDepths()
 	}
 
-	// Scan all dependencies (direct + transitive) against OSV
+	// Scan all dependencies with progress updates
 	osvClient := osv.New("https://api.osv.dev/v1/query", 10)
+	totalVulns := 0
+	current := 0
 
 	for _, node := range graph.Nodes {
-		// Skip dev dependencies if requested
-		if *skipDevDeps && node.Type == models.Development {
+		if skipDevDeps && node.Type == models.Development {
 			continue
 		}
+
+		current++
+
+		// Send progress update
+		program.Send(ui.ProgressMsg{
+			Progress: ui.ScanProgress{
+				Current:      current,
+				Total:        len(graph.Nodes),
+				CurrentPkg:   node.Name + "@" + node.Version,
+				CurrentVulns: totalVulns,
+				StartTime:    time.Now(),
+			},
+		})
 
 		vulns, err := osvClient.Query(node.Name, node.Version)
 		if err != nil {
-			// Log but continue scanning other packages
-			fmt.Fprintf(os.Stderr, "warning: query %s@%s: %v\n", node.Name, node.Version, err)
 			continue
 		}
 
-		// Calculate risk scores with supply chain depth modifier
 		for j := range vulns {
 			vulns[j].RiskScore = osv.CalculateRiskScoreWithDepth(
 				vulns[j].Severity,
@@ -139,20 +192,28 @@ func cmdScan(args []string) error {
 		}
 
 		node.Vulnerabilities = vulns
+		totalVulns += len(vulns)
 	}
 
-	// Build result from dependency graph
+	// Send completion
+	program.Send(ui.DoneMsg{})
+
+	// Build result
 	result := buildScanResultFromGraph(absPath, lockFile, lockHash, graph)
 
 	// Save cache
 	cachePath := filepath.Join(absPath, ".vigil.cache")
 	if err := scanner.SaveCache(cachePath, result); err != nil {
-		return fmt.Errorf("save cache: %w", err)
+		return nil, fmt.Errorf("save cache: %w", err)
 	}
 
-	// Export if requested
-	if *outputFmt != "" {
-		switch *outputFmt {
+	return result, nil
+}
+
+// handleScanResult displays results and handles output
+func handleScanResult(result *models.ScanResult, outputFmt string, finalModel ui.Model) error {
+	if outputFmt != "" {
+		switch outputFmt {
 		case "csv":
 			if err := export.CSV(result, os.Stdout); err != nil {
 				return err
@@ -166,15 +227,23 @@ func cmdScan(args []string) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("unknown output format: %s", *outputFmt)
+			return fmt.Errorf("unknown output format: %s", outputFmt)
 		}
 	} else {
 		// Print summary
-		fmt.Printf("Scan complete: %d dependencies, %d vulnerabilities\n",
-			len(graph.Nodes), result.TotalVulns)
+		fmt.Printf("\n✓ Scan complete: %d dependencies, %d vulnerabilities\n",
+			len(result.Dependencies), result.TotalVulns)
+		if result.CriticalVulns > 0 {
+			fmt.Printf("  🔴 Critical: %d\n", result.CriticalVulns)
+		}
+		if result.HighVulns > 0 {
+			fmt.Printf("  🟠 High: %d\n", result.HighVulns)
+		}
+		if result.MediumVulns > 0 {
+			fmt.Printf("  🟡 Medium: %d\n", result.MediumVulns)
+		}
 	}
 
-	// Exit with status based on vulnerabilities
 	if result.CriticalVulns > 0 || result.HighVulns > 0 {
 		os.Exit(1)
 	}
