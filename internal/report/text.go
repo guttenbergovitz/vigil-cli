@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 	"time"
 )
 
 // Text generates a text report with supply chain context
-func Text(result *models.ScanResult, out io.Writer) error {
+func Text(result *types.ScanResult, out io.Writer) error {
 	fmt.Fprintf(out, "Project: %s\n", result.ProjectPath)
 	fmt.Fprintf(out, "Scanned: %s\n", result.ScannedAt.Format(time.RFC3339))
 	fmt.Fprintf(out, "Lock file: %s\n", result.LockFile)
@@ -41,9 +41,9 @@ func Text(result *models.ScanResult, out io.Writer) error {
 		fmt.Fprintf(out, "CRITICAL (%d)\n", result.CriticalVulns)
 		for _, dep := range result.Dependencies {
 			for _, vuln := range dep.Vulnerabilities {
-				if vuln.Severity == models.Critical {
+				if vuln.Severity == types.Critical {
 					depType := "production"
-					if dep.Type == models.Development {
+					if dep.Type == types.Development {
 						depType = "dev"
 					}
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
@@ -80,9 +80,9 @@ func Text(result *models.ScanResult, out io.Writer) error {
 		fmt.Fprintf(out, "HIGH (%d)\n", result.HighVulns)
 		for _, dep := range result.Dependencies {
 			for _, vuln := range dep.Vulnerabilities {
-				if vuln.Severity == models.High {
+				if vuln.Severity == types.High {
 					depType := "production"
-					if dep.Type == models.Development {
+					if dep.Type == types.Development {
 						depType = "dev"
 					}
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
@@ -111,9 +111,9 @@ func Text(result *models.ScanResult, out io.Writer) error {
 		fmt.Fprintf(out, "MEDIUM (%d)\n", result.MediumVulns)
 		for _, dep := range result.Dependencies {
 			for _, vuln := range dep.Vulnerabilities {
-				if vuln.Severity == models.Medium {
+				if vuln.Severity == types.Medium {
 					depType := "production"
-					if dep.Type == models.Development {
+					if dep.Type == types.Development {
 						depType = "dev"
 					}
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
@@ -139,9 +139,9 @@ func Text(result *models.ScanResult, out io.Writer) error {
 		fmt.Fprintf(out, "LOW (%d)\n", result.LowVulns)
 		for _, dep := range result.Dependencies {
 			for _, vuln := range dep.Vulnerabilities {
-				if vuln.Severity == models.Low {
+				if vuln.Severity == types.Low {
 					depType := "production"
-					if dep.Type == models.Development {
+					if dep.Type == types.Development {
 						depType = "dev"
 					}
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)

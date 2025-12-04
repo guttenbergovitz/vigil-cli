@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 func TestQueryPackage(t *testing.T) {
@@ -115,15 +115,15 @@ func TestBatchQuery(t *testing.T) {
 func TestRiskScore(t *testing.T) {
 	tests := []struct {
 		name     string
-		severity models.Severity
+		severity types.Severity
 		inProd   bool
 		wantMin  int
 		wantMax  int
 	}{
-		{"critical in prod", models.Critical, true, 80, 100},
-		{"high in prod", models.High, true, 60, 80},
-		{"medium in prod", models.Medium, true, 40, 60},
-		{"low in dev", models.Low, false, 0, 30},
+		{"critical in prod", types.Critical, true, 80, 100},
+		{"high in prod", types.High, true, 60, 80},
+		{"medium in prod", types.Medium, true, 40, 60},
+		{"low in dev", types.Low, false, 0, 30},
 	}
 
 	for _, tt := range tests {

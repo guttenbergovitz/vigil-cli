@@ -1,14 +1,14 @@
 package report
 
-import "github.com/guttenbergovitz/vigil-cli/pkg/models"
+import "github.com/guttenbergovitz/vigil-cli/internal/types"
 
 // FilterByLevel filters scan results to show only vulns at or above specified level
-func FilterByLevel(result *models.ScanResult, level string) *models.ScanResult {
-	severityMap := map[string]models.Severity{
-		"low":      models.Low,
-		"medium":   models.Medium,
-		"high":     models.High,
-		"critical": models.Critical,
+func FilterByLevel(result *types.ScanResult, level string) *types.ScanResult {
+	severityMap := map[string]types.Severity{
+		"low":      types.Low,
+		"medium":   types.Medium,
+		"high":     types.High,
+		"critical": types.Critical,
 	}
 
 	minSev, ok := severityMap[level]
@@ -16,20 +16,20 @@ func FilterByLevel(result *models.ScanResult, level string) *models.ScanResult {
 		return result
 	}
 
-	severityOrder := map[models.Severity]int{
-		models.Low:      1,
-		models.Medium:   2,
-		models.High:     3,
-		models.Critical: 4,
+	severityOrder := map[types.Severity]int{
+		types.Low:      1,
+		types.Medium:   2,
+		types.High:     3,
+		types.Critical: 4,
 	}
 
-	filtered := &models.ScanResult{
+	filtered := &types.ScanResult{
 		Version:       result.Version,
 		ProjectPath:   result.ProjectPath,
 		ScannedAt:     result.ScannedAt,
 		LockFile:      result.LockFile,
 		LockFileHash:  result.LockFileHash,
-		Dependencies:  make([]models.Dependency, 0),
+		Dependencies:  make([]types.Dependency, 0),
 		TotalVulns:    0,
 		CriticalVulns: 0,
 		HighVulns:     0,
@@ -38,7 +38,7 @@ func FilterByLevel(result *models.ScanResult, level string) *models.ScanResult {
 	}
 
 	for _, dep := range result.Dependencies {
-		var filteredVulns []models.Vulnerability
+		var filteredVulns []types.Vulnerability
 		for _, vuln := range dep.Vulnerabilities {
 			if severityOrder[vuln.Severity] >= severityOrder[minSev] {
 				filteredVulns = append(filteredVulns, vuln)
@@ -53,13 +53,13 @@ func FilterByLevel(result *models.ScanResult, level string) *models.ScanResult {
 			for _, vuln := range filteredVulns {
 				filtered.TotalVulns++
 				switch vuln.Severity {
-				case models.Critical:
+				case types.Critical:
 					filtered.CriticalVulns++
-				case models.High:
+				case types.High:
 					filtered.HighVulns++
-				case models.Medium:
+				case types.Medium:
 					filtered.MediumVulns++
-				case models.Low:
+				case types.Low:
 					filtered.LowVulns++
 				}
 			}

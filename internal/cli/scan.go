@@ -9,11 +9,11 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/guttenbergovitz/vigil-cli/internal/orchestrator"
-	"github.com/guttenbergovitz/vigil-cli/internal/scanner"
+	"github.com/guttenbergovitz/vigil-cli/internal/scan"
+	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
 	"github.com/guttenbergovitz/vigil-cli/internal/ui"
-	"github.com/guttenbergovitz/vigil-cli/pkg/export"
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/export"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // Scan executes the scan command
@@ -40,7 +40,7 @@ func Scan(args []string) error {
 	}
 
 	// Find lock file
-	lockFile, lockType, err := scanner.FindLockFile(absPath)
+	lockFile, lockType, err := lockfile.FindLockFile(absPath)
 	if err != nil {
 		return fmt.Errorf("no lock file found in %s: %w\n\nSupported lock files: package-lock.json (npm), yarn.lock (yarn), pnpm-lock.yaml (pnpm)", absPath, err)
 	}
@@ -48,19 +48,19 @@ func Scan(args []string) error {
 	lockFilePath := filepath.Join(absPath, lockFile)
 
 	// Hash the lock file
-	lockHash, err := scanner.HashFile(lockFilePath)
+	lockHash, err := lockfile.HashFile(lockFilePath)
 	if err != nil {
 		return fmt.Errorf("hash lock file: %w", err)
 	}
 
 	// Channel for scan results
-	resultChan := make(chan *models.ScanResult, 1)
+	resultChan := make(chan *types.ScanResult, 1)
 	errorChan := make(chan error, 1)
 	var wg sync.WaitGroup
 
 	var program *tea.Program
 	var finalModel tea.Model
-	var reporter orchestrator.ProgressReporter
+	var reporter scan.ProgressReporter
 
 	if !*noTUI {
 		// Create Bubbletea model for progress display with alt screen
@@ -78,7 +78,7 @@ func Scan(args []string) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		result, err := orchestrator.Scan(absPath, lockFile, lockType, lockHash, lockFilePath, *skipDevDeps, reporter)
+		result, err := scan.Scan(absPath, lockFile, lockType, lockHash, lockFilePath, *skipDevDeps, reporter)
 		if err != nil {
 			errorChan <- err
 		} else {
@@ -122,7 +122,7 @@ func Scan(args []string) error {
 }
 
 // handleScanResult displays results and handles output
-func handleScanResult(result *models.ScanResult, outputFmt string, finalModel *ui.Model) error {
+func handleScanResult(result *types.ScanResult, outputFmt string, finalModel *ui.Model) error {
 	if outputFmt != "" {
 		switch outputFmt {
 		case "csv":
@@ -162,7 +162,7 @@ func handleScanResult(result *models.ScanResult, outputFmt string, finalModel *u
 	return nil
 }
 
-// TUIAdapter adapts the orchestrator.ProgressReporter interface to Bubbletea messages
+// TUIAdapter adapts the scan.ProgressReporter interface to Bubbletea messages
 type TUIAdapter struct {
 	program *tea.Program
 }
@@ -186,7 +186,7 @@ func (t *TUIAdapter) Progress(current, total int, currentPkg string, currentVuln
 	}
 }
 
-func (t *TUIAdapter) Vulnerability(vuln models.Vulnerability, pkg string, path []string) {
+func (t *TUIAdapter) Vulnerability(vuln types.Vulnerability, pkg string, path []string) {
 	if t.program != nil {
 		// Determine display CVE ID (prefer CVE-* over GHSA-*)
 		displayCVE := vuln.ID
@@ -226,7 +226,7 @@ func (t *TUIAdapter) Vulnerability(vuln models.Vulnerability, pkg string, path [
 	}
 }
 
-func (t *TUIAdapter) Done(result *models.ScanResult) {
+func (t *TUIAdapter) Done(result *types.ScanResult) {
 	if t.program != nil {
 		t.program.Send(ui.DoneMsg{
 			Result: &ui.ScanResult{

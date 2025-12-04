@@ -1,4 +1,4 @@
-package scanner
+package lockfile
 
 import (
 	"bytes"

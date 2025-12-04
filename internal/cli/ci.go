@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/guttenbergovitz/vigil-cli/internal/scanner"
-	"github.com/guttenbergovitz/vigil-cli/pkg/export"
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
+	"github.com/guttenbergovitz/vigil-cli/internal/export"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // CI executes the ci command
@@ -40,17 +40,17 @@ func CI(args []string) error {
 
 	// Load cache
 	cachePath := filepath.Join(absPath, ".vigil.cache")
-	result, err := scanner.LoadCache(cachePath)
+	result, err := lockfile.LoadCache(cachePath)
 	if err != nil {
 		return fmt.Errorf("load cache: %w", err)
 	}
 
 	// Determine fail threshold
-	severityMap := map[string]models.Severity{
-		"low":      models.Low,
-		"medium":   models.Medium,
-		"high":     models.High,
-		"critical": models.Critical,
+	severityMap := map[string]types.Severity{
+		"low":      types.Low,
+		"medium":   types.Medium,
+		"high":     types.High,
+		"critical": types.Critical,
 	}
 
 	minSev, ok := severityMap[*failOn]
@@ -58,11 +58,11 @@ func CI(args []string) error {
 		return fmt.Errorf("invalid fail-on level: %s", *failOn)
 	}
 
-	severityOrder := map[models.Severity]int{
-		models.Low:      1,
-		models.Medium:   2,
-		models.High:     3,
-		models.Critical: 4,
+	severityOrder := map[types.Severity]int{
+		types.Low:      1,
+		types.Medium:   2,
+		types.High:     3,
+		types.Critical: 4,
 	}
 
 	// Check if vulnerabilities at or above threshold exist

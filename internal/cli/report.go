@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/guttenbergovitz/vigil-cli/internal/report"
-	"github.com/guttenbergovitz/vigil-cli/internal/scanner"
-	"github.com/guttenbergovitz/vigil-cli/pkg/export"
+	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
+	"github.com/guttenbergovitz/vigil-cli/internal/export"
 )
 
 // Report executes the report command
@@ -35,7 +35,7 @@ func Report(args []string) error {
 
 	// Load cache
 	cachePath := filepath.Join(absPath, ".vigil.cache")
-	result, err := scanner.LoadCache(cachePath)
+	result, err := lockfile.LoadCache(cachePath)
 	if err != nil {
 		return fmt.Errorf("load cache: %w", err)
 	}

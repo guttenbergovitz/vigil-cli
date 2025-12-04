@@ -6,17 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 func TestText(t *testing.T) {
 	// Setup sample data
 	scannedAt := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
-	result := &models.ScanResult{
+	result := &types.ScanResult{
 		ProjectPath:   "/tmp/test",
 		ScannedAt:     scannedAt,
 		LockFile:      "package-lock.json",
-		Dependencies:  []models.Dependency{{Name: "test-dep", Version: "1.0.0"}},
+		Dependencies:  []types.Dependency{{Name: "test-dep", Version: "1.0.0"}},
 		TotalVulns:    1,
 		CriticalVulns: 1,
 		HighVulns:     0,
@@ -25,10 +25,10 @@ func TestText(t *testing.T) {
 	}
 
 	// Add a vulnerability
-	result.Dependencies[0].Vulnerabilities = []models.Vulnerability{
+	result.Dependencies[0].Vulnerabilities = []types.Vulnerability{
 		{
 			ID:          "CVE-2023-1234",
-			Severity:    models.Critical,
+			Severity:    types.Critical,
 			Summary:     "Test Vulnerability",
 			Description: "This is a test vulnerability description that is quite long and should be truncated if it exceeds the limit.",
 		},

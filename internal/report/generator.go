@@ -3,16 +3,16 @@ package report
 import (
 	"io"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // Generator creates reports from scan results.
 type Generator struct {
-	result *models.ScanResult
+	result *types.ScanResult
 }
 
 // New creates a new report generator with scan results.
-func New(result *models.ScanResult) *Generator {
+func New(result *types.ScanResult) *Generator {
 	return &Generator{
 		result: result,
 	}

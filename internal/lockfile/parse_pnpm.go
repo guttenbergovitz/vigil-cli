@@ -1,4 +1,4 @@
-package scanner
+package lockfile
 
 import (
 	"bufio"
@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -14,11 +14,11 @@ import (
 func ParsePnpmLock(r io.Reader) (*Dependencies, error) {
 	var lockFile struct {
 		Packages map[string]struct {
-			Dev          bool     `yaml:"dev"`
+			Dev          bool              `yaml:"dev"`
 			Dependencies map[string]string `yaml:"dependencies"`
 		} `yaml:"packages"`
 		ImportersRoot struct {
-			Dependencies map[string]string `yaml:"dependencies"`
+			Dependencies    map[string]string `yaml:"dependencies"`
 			DevDependencies map[string]string `yaml:"devDependencies"`
 		} `yaml:"importers"` // pnpm v6+
 	}
@@ -63,7 +63,7 @@ func ParsePnpmLock(r io.Reader) (*Dependencies, error) {
 }
 
 // ParsePnpmLockGraph parses pnpm-lock.yaml and returns full dependency graph.
-func ParsePnpmLockGraph(r io.Reader) (*models.DependencyGraph, error) {
+func ParsePnpmLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 	var lockFile struct {
 		Packages map[string]struct {
 			Dev          bool              `yaml:"dev"`
@@ -76,7 +76,7 @@ func ParsePnpmLockGraph(r io.Reader) (*models.DependencyGraph, error) {
 		return nil, fmt.Errorf("parse pnpm lock graph: %w", err)
 	}
 
-	graph := models.NewDependencyGraph()
+	graph := types.NewDependencyGraph()
 
 	// Parse package path format: "name@version" or "@scope/name@version" or "name/subpath@version"
 	extractNameVersion := func(pkgPath string) (name, version string) {
@@ -114,9 +114,9 @@ func ParsePnpmLockGraph(r io.Reader) (*models.DependencyGraph, error) {
 			continue
 		}
 
-		typ := models.Production
+		typ := types.Production
 		if pkg.Dev {
-			typ = models.Development
+			typ = types.Development
 		}
 
 		// Determine if direct (no "/" after version in path)

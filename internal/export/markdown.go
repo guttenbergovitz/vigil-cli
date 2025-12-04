@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // Markdown exports scan results in Markdown format.
-func Markdown(result *models.ScanResult, w io.Writer) error {
+func Markdown(result *types.ScanResult, w io.Writer) error {
 	fmt.Fprintf(w, "# Vulnerability Report\n\n")
 	fmt.Fprintf(w, "**Project:** %s\n", result.ProjectPath)
 	fmt.Fprintf(w, "**Scanned:** %s\n", result.ScannedAt.Format("2006-01-02 15:04:05 UTC"))
@@ -24,10 +24,10 @@ func Markdown(result *models.ScanResult, w io.Writer) error {
 	fmt.Fprintf(w, "| Low      | %d |\n\n", result.LowVulns)
 
 	// Vulnerabilities by severity
-	severities := []models.Severity{models.Critical, models.High, models.Medium, models.Low}
+	severities := []types.Severity{types.Critical, types.High, types.Medium, types.Low}
 
 	for _, severity := range severities {
-		var vulns []models.Vulnerability
+		var vulns []types.Vulnerability
 		for _, dep := range result.Dependencies {
 			for _, v := range dep.Vulnerabilities {
 				// Use CVESeverity from NVD if available, otherwise use Severity

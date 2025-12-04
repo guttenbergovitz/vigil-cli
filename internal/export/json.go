@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // JSON exports scan results in JSON format.
-func JSON(result *models.ScanResult, w io.Writer) error {
+func JSON(result *types.ScanResult, w io.Writer) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 

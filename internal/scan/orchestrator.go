@@ -1,4 +1,4 @@
-package orchestrator
+package scan
 
 import (
 	"fmt"
@@ -10,20 +10,20 @@ import (
 	"github.com/guttenbergovitz/vigil-cli/internal/github"
 	"github.com/guttenbergovitz/vigil-cli/internal/nvd"
 	"github.com/guttenbergovitz/vigil-cli/internal/osv"
-	"github.com/guttenbergovitz/vigil-cli/internal/scanner"
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // ProgressReporter defines how the orchestrator reports progress to the UI
 type ProgressReporter interface {
 	Error(msg string)
 	Progress(current, total int, currentPkg string, currentVulns int)
-	Vulnerability(vuln models.Vulnerability, pkg string, path []string)
-	Done(result *models.ScanResult)
+	Vulnerability(vuln types.Vulnerability, pkg string, path []string)
+	Done(result *types.ScanResult)
 }
 
 // Scan performs the vulnerability scan
-func Scan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, lockFilePath string, skipDevDeps bool, reporter ProgressReporter) (*models.ScanResult, error) {
+func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lockFilePath string, skipDevDeps bool, reporter ProgressReporter) (*types.ScanResult, error) {
 	// Check if lock file path is valid
 	if lockFilePath == "" || lockFile == "" {
 		errMsg := "No lock file found. Please run this in a Node.js/TypeScript project with package-lock.json, yarn.lock, or pnpm-lock.yaml"
@@ -44,10 +44,10 @@ func Scan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, loc
 	}
 	defer lockf.Close()
 
-	var graph *models.DependencyGraph
+	var graph *types.DependencyGraph
 
-	if lockType == scanner.PnpmLock {
-		graph, err = scanner.ParsePnpmLockGraph(lockf)
+	if lockType == lockfile.PnpmLock {
+		graph, err = lockfile.ParsePnpmLockGraph(lockf)
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to parse pnpm-lock.yaml: %v", err)
 			if reporter != nil {
@@ -56,7 +56,7 @@ func Scan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, loc
 			return nil, fmt.Errorf("failed to parse pnpm-lock.yaml: %w", err)
 		}
 	} else {
-		deps, err := scanner.ParseLockFile(lockf, lockType)
+		deps, err := lockfile.ParseLockFile(lockf, lockType)
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to parse lock file: %v", err)
 			if reporter != nil {
@@ -65,7 +65,7 @@ func Scan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, loc
 			return nil, fmt.Errorf("failed to parse lock file: %w", err)
 		}
 
-		depTree, err := scanner.BuildDependencyTree(deps)
+		depTree, err := lockfile.BuildDependencyTree(deps)
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to build dependency tree: %v", err)
 			if reporter != nil {
@@ -74,7 +74,7 @@ func Scan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, loc
 			return nil, fmt.Errorf("failed to build dependency tree: %w", err)
 		}
 
-		graph = models.NewDependencyGraph()
+		graph = types.NewDependencyGraph()
 		for _, dep := range depTree {
 			graph.AddNode(dep.Name, dep.Version, dep.Type, true)
 			graph.Root = append(graph.Root, dep.Name+"@"+dep.Version)
@@ -104,9 +104,9 @@ func Scan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, loc
 
 	// Count nodes to scan and collect them
 	nodesToScan := 0
-	var nodesToScanList []*models.DependencyNode
+	var nodesToScanList []*types.DependencyNode
 	for _, node := range graph.Nodes {
-		if skipDevDeps && node.Type == models.Development {
+		if skipDevDeps && node.Type == types.Development {
 			continue
 		}
 		nodesToScan++
@@ -139,7 +139,7 @@ func Scan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, loc
 		for j := range vulns {
 			vulns[j].RiskScore = osv.CalculateRiskScoreWithDepth(
 				vulns[j].Severity,
-				node.Type == models.Production,
+				node.Type == types.Production,
 				node.Depth,
 			)
 
@@ -245,19 +245,19 @@ func Scan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, loc
 
 	// Save cache
 	cachePath := filepath.Join(absPath, ".vigil.cache")
-	if err := scanner.SaveCache(cachePath, result); err != nil {
+	if err := lockfile.SaveCache(cachePath, result); err != nil {
 		return nil, fmt.Errorf("save cache: %w", err)
 	}
 
 	return result, nil
 }
 
-func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *models.DependencyGraph) *models.ScanResult {
+func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *types.DependencyGraph) *types.ScanResult {
 	// Convert graph nodes to flat dependency list
-	deps := make([]models.Dependency, 0, len(graph.Nodes))
+	deps := make([]types.Dependency, 0, len(graph.Nodes))
 
 	for _, node := range graph.Nodes {
-		dep := models.Dependency{
+		dep := types.Dependency{
 			Name:            node.Name,
 			Version:         node.Version,
 			Type:            node.Type,
@@ -266,7 +266,7 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *mod
 		deps = append(deps, dep)
 	}
 
-	result := &models.ScanResult{
+	result := &types.ScanResult{
 		Version:      1,
 		ProjectPath:  projectPath,
 		ScannedAt:    time.Now().UTC(),
@@ -285,13 +285,13 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *mod
 				severity = vuln.CVESeverity
 			}
 			switch severity {
-			case models.Critical:
+			case types.Critical:
 				result.CriticalVulns++
-			case models.High:
+			case types.High:
 				result.HighVulns++
-			case models.Medium:
+			case types.Medium:
 				result.MediumVulns++
-			case models.Low:
+			case types.Low:
 				result.LowVulns++
 			}
 		}
@@ -301,7 +301,7 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *mod
 }
 
 // deriveCVSSFromSeverity derives a CVSS score from severity level as last resort
-func deriveCVSSFromSeverity(severity models.Severity) float64 {
+func deriveCVSSFromSeverity(severity types.Severity) float64 {
 	switch strings.ToLower(string(severity)) {
 	case "critical":
 		return 9.5 // High end of critical range
@@ -317,17 +317,17 @@ func deriveCVSSFromSeverity(severity models.Severity) float64 {
 }
 
 // severityFromCVSS maps CVSS score to severity
-func severityFromCVSS(score float64) models.Severity {
+func severityFromCVSS(score float64) types.Severity {
 	switch {
 	case score >= 9.0:
-		return models.Critical
+		return types.Critical
 	case score >= 7.0:
-		return models.High
+		return types.High
 	case score >= 4.0:
-		return models.Medium
+		return types.Medium
 	case score > 0:
-		return models.Low
+		return types.Low
 	default:
-		return models.Medium
+		return types.Medium
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // Client provides access to GitHub Security Alerts API
@@ -72,7 +72,7 @@ type AlertResponse struct {
 
 // QueryAlertsForRepo fetches Dependabot security alerts for a repository
 // Requires GitHub token with 'security_events' scope
-func (c *Client) QueryAlertsForRepo(owner, repo string) ([]models.Vulnerability, error) {
+func (c *Client) QueryAlertsForRepo(owner, repo string) ([]types.Vulnerability, error) {
 	if c.token == "" {
 		return nil, fmt.Errorf("GitHub token required for security alerts")
 	}
@@ -103,7 +103,7 @@ func (c *Client) QueryAlertsForRepo(owner, repo string) ([]models.Vulnerability,
 		return nil, fmt.Errorf("decode GitHub response: %w", err)
 	}
 
-	var vulns []models.Vulnerability
+	var vulns []types.Vulnerability
 	for _, alert := range alertResp.Alerts {
 		if alert.SecurityVulnerability.WithdrawnAt != nil {
 			continue // Skip withdrawn vulnerabilities
@@ -132,12 +132,12 @@ func (c *Client) QueryAlertsForRepo(owner, repo string) ([]models.Vulnerability,
 			refs[i] = ref.URL
 		}
 
-		severity := models.Severity(alert.SecurityVulnerability.Severity)
+		severity := types.Severity(alert.SecurityVulnerability.Severity)
 		if severity == "" {
-			severity = models.Medium
+			severity = types.Medium
 		}
 
-		vulns = append(vulns, models.Vulnerability{
+		vulns = append(vulns, types.Vulnerability{
 			ID:          cveID,
 			Summary:     alert.SecurityVulnerability.Description,
 			Description: alert.SecurityVulnerability.Description,

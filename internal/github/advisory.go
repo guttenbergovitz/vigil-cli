@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // QueryGHSA queries GitHub Security Advisory API for a specific GHSA ID
 // Returns CVSS score and other details
-func (c *Client) QueryGHSA(ghsaID string) (*models.Vulnerability, error) {
+func (c *Client) QueryGHSA(ghsaID string) (*types.Vulnerability, error) {
 	if c.token == "" {
 		// Try without auth first
 		return c.queryGHSAWithoutAuth(ghsaID)
@@ -98,12 +98,12 @@ func (c *Client) QueryGHSA(ghsaID string) (*models.Vulnerability, error) {
 		}
 	}
 
-	severity := models.Severity(strings.ToLower(adv.Severity))
+	severity := types.Severity(strings.ToLower(adv.Severity))
 	if severity == "" {
-		severity = models.Medium
+		severity = types.Medium
 	}
 
-	return &models.Vulnerability{
+	return &types.Vulnerability{
 		ID:          adv.GHSAID,
 		CVEID:       cveID,
 		Summary:     adv.Summary,
@@ -117,7 +117,7 @@ func (c *Client) QueryGHSA(ghsaID string) (*models.Vulnerability, error) {
 }
 
 // queryGHSAWithoutAuth tries to fetch GHSA from public API endpoint
-func (c *Client) queryGHSAWithoutAuth(ghsaID string) (*models.Vulnerability, error) {
+func (c *Client) queryGHSAWithoutAuth(ghsaID string) (*types.Vulnerability, error) {
 	// GitHub Security Advisories are public, try REST API
 	url := fmt.Sprintf("https://api.github.com/advisories/%s", ghsaID)
 	
@@ -179,12 +179,12 @@ func (c *Client) queryGHSAWithoutAuth(ghsaID string) (*models.Vulnerability, err
 		}
 	}
 
-	severity := models.Severity(strings.ToLower(advisory.Severity))
+	severity := types.Severity(strings.ToLower(advisory.Severity))
 	if severity == "" {
-		severity = models.Medium
+		severity = types.Medium
 	}
 
-	return &models.Vulnerability{
+	return &types.Vulnerability{
 		ID:          advisory.GHSAID,
 		CVEID:       cveID,
 		Summary:     advisory.Summary,
