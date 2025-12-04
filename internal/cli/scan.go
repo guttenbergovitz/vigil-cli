@@ -9,11 +9,11 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/guttenbergovitz/vigil-cli/internal/scan"
-	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
-	"github.com/guttenbergovitz/vigil-cli/internal/ui"
 	"github.com/guttenbergovitz/vigil-cli/internal/export"
+	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
+	"github.com/guttenbergovitz/vigil-cli/internal/scan"
 	"github.com/guttenbergovitz/vigil-cli/internal/types"
+	"github.com/guttenbergovitz/vigil-cli/internal/ui"
 )
 
 // Scan executes the scan command
@@ -152,6 +152,9 @@ func handleScanResult(result *types.ScanResult, outputFmt string, finalModel *ui
 		}
 		if result.MediumVulns > 0 {
 			fmt.Printf("  🟡 Medium: %d\n", result.MediumVulns)
+		}
+		if result.LowVulns > 0 {
+			fmt.Printf("  🔵 Low: %d\n", result.LowVulns)
 		}
 	}
 

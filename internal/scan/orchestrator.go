@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/guttenbergovitz/vigil-cli/internal/github"
+	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
 	"github.com/guttenbergovitz/vigil-cli/internal/nvd"
 	"github.com/guttenbergovitz/vigil-cli/internal/osv"
-	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
 	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
@@ -276,6 +276,7 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *typ
 	}
 
 	// Count vulnerabilities by severity (use CVESeverity from NVD if available)
+	// Count vulnerabilities by severity (use CVESeverity from NVD if available)
 	for _, node := range graph.Nodes {
 		for _, vuln := range node.Vulnerabilities {
 			result.TotalVulns++
@@ -284,7 +285,11 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *typ
 			if vuln.CVESeverity != "" {
 				severity = vuln.CVESeverity
 			}
-			switch severity {
+
+			// Normalize severity to lowercase
+			normalizedSev := types.Severity(strings.ToLower(string(severity)))
+
+			switch normalizedSev {
 			case types.Critical:
 				result.CriticalVulns++
 			case types.High:
@@ -292,6 +297,10 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *typ
 			case types.Medium:
 				result.MediumVulns++
 			case types.Low:
+				result.LowVulns++
+			default:
+				// If severity is unknown or unmapped, count as Low for now to avoid "missing" vulns in summary
+				// Ideally we should have an Unknown type, but for now this ensures the math works
 				result.LowVulns++
 			}
 		}
