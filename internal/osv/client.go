@@ -40,11 +40,11 @@ type QueryRequest struct {
 // QueryResponse represents the OSV API response.
 type QueryResponse struct {
 	Vulns []struct {
-		ID      string `json:"id"`
-		Summary string `json:"summary"`
-		Severity string `json:"severity"`
-		Published string `json:"published"`
-		Modified string `json:"modified"`
+		ID        string   `json:"id"`
+		Summary   string   `json:"summary"`
+		Severity  []string `json:"severity"` // OSV returns severity as array
+		Published string   `json:"published"`
+		Modified  string   `json:"modified"`
 		References []struct {
 			Type string `json:"type"`
 			URL  string `json:"url"`
@@ -91,7 +91,11 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 
 	var vulns []models.Vulnerability
 	for _, v := range queryResp.Vulns {
-		sev := models.Severity(v.Severity)
+		// Extract severity from array (take first/highest)
+		var sev models.Severity
+		if len(v.Severity) > 0 {
+			sev = models.Severity(v.Severity[0])
+		}
 		if sev == "" {
 			sev = models.Medium
 		}
