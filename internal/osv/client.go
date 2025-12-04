@@ -40,11 +40,11 @@ type QueryRequest struct {
 // QueryResponse represents the OSV API response.
 type QueryResponse struct {
 	Vulns []struct {
-		ID        string   `json:"id"`
-		Summary   string   `json:"summary"`
-		Severity  []string `json:"severity"` // OSV returns severity as array
-		Published string   `json:"published"`
-		Modified  string   `json:"modified"`
+		ID        string        `json:"id"`
+		Summary   string        `json:"summary"`
+		Severity  interface{}   `json:"severity"` // Can be string, array, or object
+		Published string        `json:"published"`
+		Modified  string        `json:"modified"`
 		References []struct {
 			Type string `json:"type"`
 			URL  string `json:"url"`
@@ -91,11 +91,8 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 
 	var vulns []models.Vulnerability
 	for _, v := range queryResp.Vulns {
-		// Extract severity from array (take first/highest)
-		var sev models.Severity
-		if len(v.Severity) > 0 {
-			sev = models.Severity(v.Severity[0])
-		}
+		// Extract severity - can be string, array, or object
+		sev := extractSeverity(v.Severity)
 		if sev == "" {
 			sev = models.Medium
 		}
@@ -219,4 +216,45 @@ func (c *Client) ScanGraphVulnerabilities(graph *models.DependencyGraph) error {
 	}
 
 	return nil
+}
+
+// extractSeverity handles different severity formats from OSV API:
+// - string: "high"
+// - array: ["high"]
+// - object: {"cvssv3": {...}}
+func extractSeverity(sev interface{}) models.Severity {
+	if sev == nil {
+		return ""
+	}
+
+	switch v := sev.(type) {
+	case string:
+		// Direct string value
+		return models.Severity(v)
+	case []interface{}:
+		// Array - take first element
+		if len(v) > 0 {
+			if str, ok := v[0].(string); ok {
+				return models.Severity(str)
+			}
+		}
+	case map[string]interface{}:
+		// Object - try to extract from common fields
+		if cvss, ok := v["cvssv3"]; ok {
+			if cvssObj, ok := cvss.(map[string]interface{}); ok {
+				if severity, ok := cvssObj["severity"].(string); ok {
+					return models.Severity(severity)
+				}
+			}
+		}
+		if cvss, ok := v["cvssv2"]; ok {
+			if cvssObj, ok := cvss.(map[string]interface{}); ok {
+				if severity, ok := cvssObj["severity"].(string); ok {
+					return models.Severity(severity)
+				}
+			}
+		}
+	}
+
+	return ""
 }
