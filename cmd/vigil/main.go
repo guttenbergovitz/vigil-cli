@@ -252,7 +252,194 @@ func handleScanResult(result *models.ScanResult, outputFmt string, finalModel ui
 }
 
 func cmdReport(args []string) error {
-	return fmt.Errorf("report not implemented")
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	format := fs.String("format", "text", "Output format (text, csv, markdown)")
+	exportFile := fs.String("export", "", "Export to file")
+	filterLevel := fs.String("filter", "", "Filter by severity level (low, medium, high, critical)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
+
+	// Get project path (current directory by default, or first arg if provided)
+	projectPath := "./"
+	if fs.NArg() > 0 {
+		projectPath = fs.Arg(0)
+	}
+
+	absPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+
+	// Load cache
+	cachePath := filepath.Join(absPath, ".vigil.cache")
+	result, err := scanner.LoadCache(cachePath)
+	if err != nil {
+		return fmt.Errorf("load cache: %w", err)
+	}
+
+	// Filter results if requested
+	if *filterLevel != "" {
+		result = filterByLevel(result, *filterLevel)
+	}
+
+	// Determine output destination
+	var out *os.File = os.Stdout
+	if *exportFile != "" {
+		f, err := os.Create(*exportFile)
+		if err != nil {
+			return fmt.Errorf("create export file: %w", err)
+		}
+		defer f.Close()
+		out = f
+	}
+
+	// Generate report in requested format
+	switch *format {
+	case "text":
+		return reportText(result, out)
+	case "csv":
+		return export.CSV(result, out)
+	case "markdown":
+		return export.Markdown(result, out)
+	case "json":
+		return export.JSON(result, out)
+	default:
+		return fmt.Errorf("unknown format: %s", *format)
+	}
+}
+
+// filterByLevel filters scan results to show only vulns at or above specified level
+func filterByLevel(result *models.ScanResult, level string) *models.ScanResult {
+	severityMap := map[string]models.Severity{
+		"low":      models.Low,
+		"medium":   models.Medium,
+		"high":     models.High,
+		"critical": models.Critical,
+	}
+
+	minSev, ok := severityMap[level]
+	if !ok {
+		return result
+	}
+
+	severityOrder := map[models.Severity]int{
+		models.Low:      1,
+		models.Medium:   2,
+		models.High:     3,
+		models.Critical: 4,
+	}
+
+	filtered := &models.ScanResult{
+		Version:       result.Version,
+		ProjectPath:   result.ProjectPath,
+		ScannedAt:     result.ScannedAt,
+		LockFile:      result.LockFile,
+		LockFileHash:  result.LockFileHash,
+		Dependencies:  make([]models.Dependency, 0),
+		TotalVulns:    0,
+		CriticalVulns: 0,
+		HighVulns:     0,
+		MediumVulns:   0,
+		LowVulns:      0,
+	}
+
+	for _, dep := range result.Dependencies {
+		var filteredVulns []models.Vulnerability
+		for _, vuln := range dep.Vulnerabilities {
+			if severityOrder[vuln.Severity] >= severityOrder[minSev] {
+				filteredVulns = append(filteredVulns, vuln)
+			}
+		}
+
+		if len(filteredVulns) > 0 {
+			dep.Vulnerabilities = filteredVulns
+			filtered.Dependencies = append(filtered.Dependencies, dep)
+
+			// Recount vulnerabilities
+			for _, vuln := range filteredVulns {
+				filtered.TotalVulns++
+				switch vuln.Severity {
+				case models.Critical:
+					filtered.CriticalVulns++
+				case models.High:
+					filtered.HighVulns++
+				case models.Medium:
+					filtered.MediumVulns++
+				case models.Low:
+					filtered.LowVulns++
+				}
+			}
+		}
+	}
+
+	return filtered
+}
+
+// reportText generates a text report
+func reportText(result *models.ScanResult, out *os.File) error {
+	fmt.Fprintf(out, "Project: %s\n", result.ProjectPath)
+	fmt.Fprintf(out, "Scanned: %s\n", result.ScannedAt.Format(time.RFC3339))
+	fmt.Fprintf(out, "Lock file: %s\n\n", result.LockFile)
+
+	if result.TotalVulns == 0 {
+		fmt.Fprintf(out, "✓ No vulnerabilities found\n")
+		return nil
+	}
+
+	// Group by severity
+	if result.CriticalVulns > 0 {
+		fmt.Fprintf(out, "CRITICAL (%d)\n", result.CriticalVulns)
+		for _, dep := range result.Dependencies {
+			for _, vuln := range dep.Vulnerabilities {
+				if vuln.Severity == models.Critical {
+					fmt.Fprintf(out, "├── %s@%s: %s\n", dep.Name, dep.Version, vuln.ID)
+					fmt.Fprintf(out, "│   └── %s\n", vuln.Summary)
+				}
+			}
+		}
+		fmt.Fprintf(out, "\n")
+	}
+
+	if result.HighVulns > 0 {
+		fmt.Fprintf(out, "HIGH (%d)\n", result.HighVulns)
+		for _, dep := range result.Dependencies {
+			for _, vuln := range dep.Vulnerabilities {
+				if vuln.Severity == models.High {
+					fmt.Fprintf(out, "├── %s@%s: %s\n", dep.Name, dep.Version, vuln.ID)
+					fmt.Fprintf(out, "│   └── %s\n", vuln.Summary)
+				}
+			}
+		}
+		fmt.Fprintf(out, "\n")
+	}
+
+	if result.MediumVulns > 0 {
+		fmt.Fprintf(out, "MEDIUM (%d)\n", result.MediumVulns)
+		for _, dep := range result.Dependencies {
+			for _, vuln := range dep.Vulnerabilities {
+				if vuln.Severity == models.Medium {
+					fmt.Fprintf(out, "├── %s@%s: %s\n", dep.Name, dep.Version, vuln.ID)
+				}
+			}
+		}
+		fmt.Fprintf(out, "\n")
+	}
+
+	if result.LowVulns > 0 {
+		fmt.Fprintf(out, "LOW (%d)\n", result.LowVulns)
+		for _, dep := range result.Dependencies {
+			for _, vuln := range dep.Vulnerabilities {
+				if vuln.Severity == models.Low {
+					fmt.Fprintf(out, "├── %s@%s: %s\n", dep.Name, dep.Version, vuln.ID)
+				}
+			}
+		}
+		fmt.Fprintf(out, "\n")
+	}
+
+	return nil
 }
 
 func cmdCI(args []string) error {
