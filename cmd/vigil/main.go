@@ -77,50 +77,72 @@ func cmdScan(args []string) error {
 		return fmt.Errorf("hash lock file: %w", err)
 	}
 
-	// Parse lock file (auto-detect format)
+	// Parse lock file and build dependency graph (supply chain analysis)
 	lockf, err := os.Open(lockFilePath)
 	if err != nil {
 		return fmt.Errorf("open lock file: %w", err)
 	}
 	defer lockf.Close()
 
-	deps, err := scanner.ParseLockFile(lockf, lockType)
-	if err != nil {
-		return fmt.Errorf("parse lock file: %w", err)
+	var graph *models.DependencyGraph
+
+	// Use graph parser for pnpm (includes transitive deps), flat parser for npm
+	if lockType == scanner.PnpmLock {
+		graph, err = scanner.ParsePnpmLockGraph(lockf)
+		if err != nil {
+			return fmt.Errorf("parse lock file graph: %w", err)
+		}
+	} else {
+		// For npm/yarn, build flat dependency tree and convert
+		deps, err := scanner.ParseLockFile(lockf, lockType)
+		if err != nil {
+			return fmt.Errorf("parse lock file: %w", err)
+		}
+
+		depTree, err := scanner.BuildDependencyTree(deps)
+		if err != nil {
+			return fmt.Errorf("build tree: %w", err)
+		}
+
+		// Convert flat list to graph (simple case - no transitive)
+		graph = models.NewDependencyGraph()
+		for _, dep := range depTree {
+			graph.AddNode(dep.Name, dep.Version, dep.Type, true)
+			graph.Root = append(graph.Root, dep.Name+"@"+dep.Version)
+		}
+		graph.CalculateDepths()
 	}
 
-	// Build dependency tree
-	depTree, err := scanner.BuildDependencyTree(deps)
-	if err != nil {
-		return fmt.Errorf("build tree: %w", err)
-	}
-
-	// Query OSV for each dependency
+	// Scan all dependencies (direct + transitive) against OSV
 	osvClient := osv.New("https://api.osv.dev/v1/query", 10)
 
-	for i := range depTree {
+	for _, node := range graph.Nodes {
 		// Skip dev dependencies if requested
-		if *skipDevDeps && depTree[i].Type == "development" {
+		if *skipDevDeps && node.Type == models.Development {
 			continue
 		}
 
-		vulns, err := osvClient.Query(depTree[i].Name, depTree[i].Version)
+		vulns, err := osvClient.Query(node.Name, node.Version)
 		if err != nil {
 			// Log but continue scanning other packages
-			fmt.Fprintf(os.Stderr, "warning: query %s@%s: %v\n", depTree[i].Name, depTree[i].Version, err)
+			fmt.Fprintf(os.Stderr, "warning: query %s@%s: %v\n", node.Name, node.Version, err)
 			continue
 		}
 
-		// Calculate risk scores and count
+		// Calculate risk scores with supply chain depth modifier
 		for j := range vulns {
-			vulns[j].RiskScore = osv.CalculateRiskScore(vulns[j].Severity, depTree[i].Type == "production")
+			vulns[j].RiskScore = osv.CalculateRiskScoreWithDepth(
+				vulns[j].Severity,
+				node.Type == models.Production,
+				node.Depth,
+			)
 		}
 
-		depTree[i].Vulnerabilities = vulns
+		node.Vulnerabilities = vulns
 	}
 
-	// Build result
-	result := buildScanResult(absPath, lockFile, lockHash, depTree)
+	// Build result from dependency graph
+	result := buildScanResultFromGraph(absPath, lockFile, lockHash, graph)
 
 	// Save cache
 	cachePath := filepath.Join(absPath, ".vigil.cache")
@@ -149,7 +171,7 @@ func cmdScan(args []string) error {
 	} else {
 		// Print summary
 		fmt.Printf("Scan complete: %d dependencies, %d vulnerabilities\n",
-			len(depTree), result.TotalVulns)
+			len(graph.Nodes), result.TotalVulns)
 	}
 
 	// Exit with status based on vulnerabilities
@@ -168,7 +190,20 @@ func cmdCI(args []string) error {
 	return fmt.Errorf("ci not implemented")
 }
 
-func buildScanResult(projectPath, lockFile, lockHash string, deps []models.Dependency) *models.ScanResult {
+func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *models.DependencyGraph) *models.ScanResult {
+	// Convert graph nodes to flat dependency list
+	deps := make([]models.Dependency, 0, len(graph.Nodes))
+
+	for _, node := range graph.Nodes {
+		dep := models.Dependency{
+			Name:            node.Name,
+			Version:         node.Version,
+			Type:            node.Type,
+			Vulnerabilities: node.Vulnerabilities,
+		}
+		deps = append(deps, dep)
+	}
+
 	result := &models.ScanResult{
 		Version:      1,
 		ProjectPath:  projectPath,
@@ -179,8 +214,8 @@ func buildScanResult(projectPath, lockFile, lockHash string, deps []models.Depen
 	}
 
 	// Count vulnerabilities by severity
-	for _, dep := range deps {
-		for _, vuln := range dep.Vulnerabilities {
+	for _, node := range graph.Nodes {
+		for _, vuln := range node.Vulnerabilities {
 			result.TotalVulns++
 			switch vuln.Severity {
 			case models.Critical:
