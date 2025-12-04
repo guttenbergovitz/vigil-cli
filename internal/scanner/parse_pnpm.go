@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"strings"
@@ -153,10 +154,60 @@ func ParsePnpmLockGraph(r io.Reader) (*models.DependencyGraph, error) {
 
 // ParseYarnLock parses yarn.lock format (v1 and v2+).
 func ParseYarnLock(r io.Reader) (*Dependencies, error) {
-	// Yarn.lock is not YAML but custom format
-	// For now, return placeholder - proper implementation needed
-	return &Dependencies{
+	deps := &Dependencies{
 		Production:  make(map[string]string),
 		Development: make(map[string]string),
-	}, fmt.Errorf("yarn.lock parsing not yet implemented")
+	}
+
+	scanner := bufio.NewScanner(r)
+	var currentPackage string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Check if this is a package header (not indented)
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			// Parse package header: "package-name@version:" or "\"package-name@npm:version\":"
+			header := strings.TrimSuffix(trimmed, ":")
+			header = strings.Trim(header, "\"")
+
+			// Handle both v1 (@version) and v2+ (@npm:version)
+			if strings.Contains(header, "@npm:") {
+				// Yarn v2+ format: "package-name@npm:version"
+				parts := strings.Split(header, "@npm:")
+				if len(parts) == 2 {
+					currentPackage = parts[0]
+					// Version will be extracted from the "version:" field below
+				}
+			} else if lastAt := strings.LastIndex(header, "@"); lastAt > 0 {
+				// Yarn v1 format: "package-name@version-spec"
+				// The version spec might be "~1.20.0" or "^2.0.0", extract package name only
+				currentPackage = header[:lastAt]
+				// Version will be extracted from the "version:" field below
+			}
+		} else if strings.HasPrefix(trimmed, "version:") && currentPackage != "" {
+			// Extract the resolved version
+			parts := strings.SplitN(trimmed, ":", 2)
+			if len(parts) == 2 {
+				version := strings.TrimSpace(parts[1])
+				version = strings.Trim(version, "\"")
+				if version != "" {
+					deps.Production[currentPackage] = version
+					currentPackage = "" // Reset for next package
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parse yarn lock: %w", err)
+	}
+
+	return deps, nil
 }

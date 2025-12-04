@@ -170,3 +170,62 @@ packages:
 		})
 	}
 }
+
+func TestParseYarnLock(t *testing.T) {
+	t.Run("yarn_v1_format", func(t *testing.T) {
+		input := []byte(`express@4.18.0:
+  version: 4.18.0
+  dependencies:
+    body-parser: "~1.20.0"
+    cookie: 0.4.2
+
+body-parser@~1.20.0:
+  version: 1.20.0
+  dependencies:
+    bytes: 3.1.0
+`)
+		deps, err := ParseYarnLock(bytes.NewReader(input))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(deps.Production) != 2 {
+			t.Errorf("expected 2 production deps, got %d", len(deps.Production))
+		}
+
+		if deps.Production["express"] != "4.18.0" {
+			t.Errorf("expected express@4.18.0, got %s", deps.Production["express"])
+		}
+
+		if deps.Production["body-parser"] != "1.20.0" {
+			t.Errorf("expected body-parser@1.20.0, got %s", deps.Production["body-parser"])
+		}
+	})
+
+	t.Run("yarn_v2_format", func(t *testing.T) {
+		input := []byte(`"express@npm:4.18.0":
+  version: 4.18.0
+  dependencies:
+    cookie: "0.4.2"
+
+"body-parser@npm:1.20.0":
+  version: 1.20.0
+`)
+		deps, err := ParseYarnLock(bytes.NewReader(input))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(deps.Production) != 2 {
+			t.Errorf("expected 2 production deps, got %d", len(deps.Production))
+		}
+
+		if deps.Production["express"] != "4.18.0" {
+			t.Errorf("expected express@4.18.0, got %s", deps.Production["express"])
+		}
+
+		if deps.Production["body-parser"] != "1.20.0" {
+			t.Errorf("expected body-parser@1.20.0, got %s", deps.Production["body-parser"])
+		}
+	})
+}
