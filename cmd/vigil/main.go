@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -155,44 +156,71 @@ func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHa
 		graph.CalculateDepths()
 	}
 
-	// Scan all dependencies with progress updates
+	// Scan all dependencies with worker pool for parallelization
 	osvClient := osv.New("https://api.osv.dev/v1/query", 10)
-	totalVulns := 0
-	current := 0
 
+	// Create worker pool (number of workers = CPU cores or default to 4)
+	numWorkers := 4
+	if nc := runtime.NumCPU(); nc > 1 {
+		numWorkers = nc
+	}
+
+	pool := scanner.NewWorkerPool(numWorkers, osvClient)
+	pool.Start()
+
+	// Count nodes to scan
+	nodesToScan := 0
 	for _, node := range graph.Nodes {
 		if skipDevDeps && node.Type == models.Development {
 			continue
 		}
+		nodesToScan++
+	}
 
+	// Submit jobs to worker pool
+	for _, node := range graph.Nodes {
+		if skipDevDeps && node.Type == models.Development {
+			continue
+		}
+		pool.Submit(scanner.ScanJob{Node: node})
+	}
+
+	// Close job channel and wait for results
+	pool.Close()
+
+	// Process results as they come in
+	totalVulns := 0
+	current := 0
+
+	for result := range pool.Results() {
 		current++
 
 		// Send progress update
 		program.Send(ui.ProgressMsg{
 			Progress: ui.ScanProgress{
 				Current:      current,
-				Total:        len(graph.Nodes),
-				CurrentPkg:   node.Name + "@" + node.Version,
+				Total:        nodesToScan,
+				CurrentPkg:   result.Node.Name + "@" + result.Node.Version,
 				CurrentVulns: totalVulns,
 			},
 		})
 
-		vulns, err := osvClient.Query(node.Name, node.Version)
-		if err != nil {
+		if result.Error != nil {
 			continue
 		}
 
+		vulns := result.Vulnerabilities
 		for j := range vulns {
 			vulns[j].RiskScore = osv.CalculateRiskScoreWithDepth(
 				vulns[j].Severity,
-				node.Type == models.Production,
-				node.Depth,
+				result.Node.Type == models.Production,
+				result.Node.Depth,
 			)
 
 			// Send vulnerability to TUI for dynamic display
 			program.Send(ui.VulnMsg{
 				Entry: ui.VulnEntry{
-					Package:  node.Name + "@" + node.Version,
+					Package:  result.Node.Name + "@" + result.Node.Version,
 					CVE:      vulns[j].ID,
 					Severity: string(vulns[j].Severity),
 					CVSS:     vulns[j].CVSSScore,
@@ -200,7 +228,7 @@ func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHa
 			})
 		}
 
-		node.Vulnerabilities = vulns
+		result.Node.Vulnerabilities = vulns
 		totalVulns += len(vulns)
 	}
 
@@ -519,10 +547,16 @@ func reportText(result *models.ScanResult, out *os.File) error {
 func cmdCI(args []string) error {
 	fs := flag.NewFlagSet("ci", flag.ContinueOnError)
 	failOn := fs.String("fail-on", "high", "Fail if vulns at or above level (low, medium, high, critical)")
+	failOnCVSS := fs.Float64("fail-on-cvss", 0.0, "Fail if any vuln has CVSS >= this threshold (0.0-10.0)")
 	format := fs.String("format", "text", "Output format (text, csv, markdown, json)")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
+	}
+
+	// Validate CVSS threshold
+	if *failOnCVSS < 0.0 || *failOnCVSS > 10.0 {
+		return fmt.Errorf("invalid CVSS threshold: must be between 0.0 and 10.0")
 	}
 
 	// Get project path (current directory by default, or first arg if provided)
@@ -565,10 +599,18 @@ func cmdCI(args []string) error {
 
 	// Check if vulnerabilities at or above threshold exist
 	failCount := 0
+	cvssFailCount := 0
+
 	for _, dep := range result.Dependencies {
 		for _, vuln := range dep.Vulnerabilities {
+			// Check severity threshold
 			if severityOrder[vuln.Severity] >= severityOrder[minSev] {
 				failCount++
+			}
+
+			// Check CVSS threshold (if specified and CVSS is available)
+			if *failOnCVSS > 0.0 && vuln.CVSSScore >= *failOnCVSS {
+				cvssFailCount++
 			}
 		}
 	}
@@ -576,12 +618,26 @@ func cmdCI(args []string) error {
 	// Output summary
 	switch *format {
 	case "text":
-		fmt.Printf("CI Check: %s and above\n", *failOn)
-		if failCount == 0 {
-			fmt.Printf("✓ No vulnerabilities at or above %s level\n", *failOn)
-			return nil
+		if *failOnCVSS > 0.0 {
+			fmt.Printf("CI Check: severity=%s, CVSS>=%.1f\n", *failOn, *failOnCVSS)
+			if failCount == 0 && cvssFailCount == 0 {
+				fmt.Printf("✓ No critical vulnerabilities found\n")
+				return nil
+			}
+			if failCount > 0 {
+				fmt.Printf("✗ Found %d vulns at or above %s level\n", failCount, *failOn)
+			}
+			if cvssFailCount > 0 {
+				fmt.Printf("✗ Found %d vulns with CVSS >= %.1f\n", cvssFailCount, *failOnCVSS)
+			}
+		} else {
+			fmt.Printf("CI Check: %s and above\n", *failOn)
+			if failCount == 0 {
+				fmt.Printf("✓ No vulnerabilities at or above %s level\n", *failOn)
+				return nil
+			}
+			fmt.Printf("✗ Found %d vulnerabilities at or above %s level\n", failCount, *failOn)
 		}
-		fmt.Printf("✗ Found %d vulnerabilities at or above %s level\n", failCount, *failOn)
 		os.Exit(1)
 	case "json":
 		export.JSON(result, os.Stdout)
@@ -594,7 +650,7 @@ func cmdCI(args []string) error {
 	}
 
 	// Exit with code 1 if vulns found
-	if failCount > 0 {
+	if failCount > 0 || cvssFailCount > 0 {
 		os.Exit(1)
 	}
 
