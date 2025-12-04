@@ -34,7 +34,7 @@ go test ./...
 go test -cover ./...
 
 # Run specific package
-go test ./internal/scanner
+go test ./internal/lockfile
 
 # Run with verbose output
 go test -v ./...
@@ -53,7 +53,7 @@ Main entry point. Should contain only:
 
 Minimal business logic—delegate to `internal/`.
 
-### internal/scanner/
+### internal/lockfile/
 Package tree analysis and lock file parsing.
 
 **Responsibilities:**
@@ -63,6 +63,15 @@ Package tree analysis and lock file parsing.
 - Classify as production or development
 
 **No external dependencies** to OSV or reporting—pure dependency analysis.
+
+### internal/scan/
+Core scanning orchestration.
+
+**Responsibilities:**
+- Coordinate the scanning process
+- Fetch vulnerabilities (OSV, NVD, GitHub)
+- Enrich data
+- Report progress
 
 ### internal/osv/
 OSV API client.
@@ -83,7 +92,7 @@ Report generation from scan cache.
 - Filter vulnerabilities by severity, type
 - Pass formatted data to exporters
 
-### pkg/config/
+### internal/config/
 Configuration file parsing (`.vigil.toml`).
 
 **Responsibilities:**
@@ -91,8 +100,8 @@ Configuration file parsing (`.vigil.toml`).
 - Validate configuration
 - Return config struct
 
-### pkg/models/
-Shared data structures.
+### internal/types/
+Shared domain data structures.
 
 **Examples:**
 - `Dependency`
@@ -100,9 +109,9 @@ Shared data structures.
 - `ScanResult`
 - `Config`
 
-**Rule:** If multiple packages use it, it belongs in `models`.
+**Rule:** If multiple packages use it, it belongs in `types`.
 
-### pkg/export/
+### internal/export/
 Export formatters.
 
 **Responsibilities:**
@@ -112,8 +121,8 @@ Export formatters.
 
 **Signature:**
 ```go
-func ExportCSV(results *models.ScanResult, writer io.Writer) error
-func ExportMarkdown(results *models.ScanResult, writer io.Writer) error
+func ExportCSV(results *types.ScanResult, writer io.Writer) error
+func ExportMarkdown(results *types.ScanResult, writer io.Writer) error
 ```
 
 ## Naming Conventions
@@ -150,14 +159,14 @@ type(scope): description
 
 **Examples:**
 ```
-feat(scanner): parse pnpm-lock.yaml
+feat(lockfile): parse pnpm-lock.yaml
 
 Add support for pnpm lock files in dependency tree analysis.
 
 feat(osv): add retry logic for API failures
 fix(report): handle empty vulnerability list
 docs(adr): add caching strategy decision record
-test(scanner): add lock file parsing tests
+test(lockfile): add lock file parsing tests
 ```
 
 **No author attribution in commits.** Message should speak for itself.
@@ -268,12 +277,12 @@ fmt.Printf("DEBUG: value=%v\n", value)
 
 ### Running single test
 ```bash
-go test -run TestParsePackageJSON ./internal/scanner
+go test -run TestParsePackageJSON ./internal/lockfile
 ```
 
 ### Detailed trace
 ```bash
-go test -v -run TestParsePackageJSON ./internal/scanner
+go test -v -run TestParsePackageJSON ./internal/lockfile
 ```
 
 ## Adding Dependencies
