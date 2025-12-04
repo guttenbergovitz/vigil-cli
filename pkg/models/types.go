@@ -31,6 +31,11 @@ type Vulnerability struct {
 	PublishedAt  *time.Time
 	ModifiedAt   *time.Time
 	Sources      []string  // Sources where vulnerability was found (osv, nvd, github, etc)
+	// CVE data from MITRE/NVD
+	CVEID        string    // CVE-YYYY-*** identifier from MITRE
+	CVETitle     string    // Title from NVD/MITRE
+	CVEDescription string   // Full description from NVD/MITRE
+	CVESeverity  Severity  // Severity from MITRE/NVD
 }
 
 // Severity represents CVE severity level.
