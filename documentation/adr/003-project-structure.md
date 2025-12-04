@@ -1,7 +1,7 @@
 # ADR 003: Project Structure and Package Organization
 
 ## Status
-Accepted
+Superseded by [ADR 006](006-internal-by-default.md)
 
 ## Context
 
