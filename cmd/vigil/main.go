@@ -377,25 +377,50 @@ func filterByLevel(result *models.ScanResult, level string) *models.ScanResult {
 	return filtered
 }
 
-// reportText generates a text report
+// reportText generates a text report with supply chain context
 func reportText(result *models.ScanResult, out *os.File) error {
 	fmt.Fprintf(out, "Project: %s\n", result.ProjectPath)
 	fmt.Fprintf(out, "Scanned: %s\n", result.ScannedAt.Format(time.RFC3339))
-	fmt.Fprintf(out, "Lock file: %s\n\n", result.LockFile)
+	fmt.Fprintf(out, "Lock file: %s\n", result.LockFile)
+	fmt.Fprintf(out, "Dependencies scanned: %d\n\n", len(result.Dependencies))
 
 	if result.TotalVulns == 0 {
 		fmt.Fprintf(out, "✓ No vulnerabilities found\n")
 		return nil
 	}
 
-	// Group by severity
+	// Summary
+	fmt.Fprintf(out, "Vulnerabilities Summary:\n")
+	if result.CriticalVulns > 0 {
+		fmt.Fprintf(out, "  🔴 Critical: %d\n", result.CriticalVulns)
+	}
+	if result.HighVulns > 0 {
+		fmt.Fprintf(out, "  🟠 High: %d\n", result.HighVulns)
+	}
+	if result.MediumVulns > 0 {
+		fmt.Fprintf(out, "  🟡 Medium: %d\n", result.MediumVulns)
+	}
+	if result.LowVulns > 0 {
+		fmt.Fprintf(out, "  🔵 Low: %d\n", result.LowVulns)
+	}
+	fmt.Fprintf(out, "\n")
+
+	// Group by severity with supply chain context
 	if result.CriticalVulns > 0 {
 		fmt.Fprintf(out, "CRITICAL (%d)\n", result.CriticalVulns)
 		for _, dep := range result.Dependencies {
 			for _, vuln := range dep.Vulnerabilities {
 				if vuln.Severity == models.Critical {
-					fmt.Fprintf(out, "├── %s@%s: %s\n", dep.Name, dep.Version, vuln.ID)
+					depType := "production"
+					if dep.Type == models.Development {
+						depType = "dev"
+					}
+					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
+					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
 					fmt.Fprintf(out, "│   └── %s\n", vuln.Summary)
+					if vuln.RiskScore > 0 {
+						fmt.Fprintf(out, "│       Risk Score: %d/100\n", vuln.RiskScore)
+					}
 				}
 			}
 		}
@@ -407,8 +432,15 @@ func reportText(result *models.ScanResult, out *os.File) error {
 		for _, dep := range result.Dependencies {
 			for _, vuln := range dep.Vulnerabilities {
 				if vuln.Severity == models.High {
-					fmt.Fprintf(out, "├── %s@%s: %s\n", dep.Name, dep.Version, vuln.ID)
-					fmt.Fprintf(out, "│   └── %s\n", vuln.Summary)
+					depType := "production"
+					if dep.Type == models.Development {
+						depType = "dev"
+					}
+					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
+					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.RiskScore > 0 {
+						fmt.Fprintf(out, "│   └── Risk Score: %d/100\n", vuln.RiskScore)
+					}
 				}
 			}
 		}
@@ -420,7 +452,12 @@ func reportText(result *models.ScanResult, out *os.File) error {
 		for _, dep := range result.Dependencies {
 			for _, vuln := range dep.Vulnerabilities {
 				if vuln.Severity == models.Medium {
-					fmt.Fprintf(out, "├── %s@%s: %s\n", dep.Name, dep.Version, vuln.ID)
+					depType := "production"
+					if dep.Type == models.Development {
+						depType = "dev"
+					}
+					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
+					fmt.Fprintf(out, "│   └── CVE: %s\n", vuln.ID)
 				}
 			}
 		}
@@ -432,12 +469,20 @@ func reportText(result *models.ScanResult, out *os.File) error {
 		for _, dep := range result.Dependencies {
 			for _, vuln := range dep.Vulnerabilities {
 				if vuln.Severity == models.Low {
-					fmt.Fprintf(out, "├── %s@%s: %s\n", dep.Name, dep.Version, vuln.ID)
+					depType := "production"
+					if dep.Type == models.Development {
+						depType = "dev"
+					}
+					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
+					fmt.Fprintf(out, "│   └── CVE: %s\n", vuln.ID)
 				}
 			}
 		}
 		fmt.Fprintf(out, "\n")
 	}
+
+	fmt.Fprintf(out, "Note: Vulnerabilities in 'dev' dependencies are lower priority as they don't affect production.\n")
+	fmt.Fprintf(out, "Risk Score considers both severity and production context (0-100).\n")
 
 	return nil
 }
