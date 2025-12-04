@@ -19,7 +19,7 @@ go.work
 # Build output
 /bin/
 /dist/
-vigil
+/vigil
 
 # Cache and temp
 .vigil.cache
