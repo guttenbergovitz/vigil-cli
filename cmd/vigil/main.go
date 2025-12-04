@@ -443,7 +443,88 @@ func reportText(result *models.ScanResult, out *os.File) error {
 }
 
 func cmdCI(args []string) error {
-	return fmt.Errorf("ci not implemented")
+	fs := flag.NewFlagSet("ci", flag.ContinueOnError)
+	failOn := fs.String("fail-on", "high", "Fail if vulns at or above level (low, medium, high, critical)")
+	format := fs.String("format", "text", "Output format (text, csv, markdown, json)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
+
+	// Get project path (current directory by default, or first arg if provided)
+	projectPath := "./"
+	if fs.NArg() > 0 {
+		projectPath = fs.Arg(0)
+	}
+
+	absPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+
+	// Load cache
+	cachePath := filepath.Join(absPath, ".vigil.cache")
+	result, err := scanner.LoadCache(cachePath)
+	if err != nil {
+		return fmt.Errorf("load cache: %w", err)
+	}
+
+	// Determine fail threshold
+	severityMap := map[string]models.Severity{
+		"low":      models.Low,
+		"medium":   models.Medium,
+		"high":     models.High,
+		"critical": models.Critical,
+	}
+
+	minSev, ok := severityMap[*failOn]
+	if !ok {
+		return fmt.Errorf("invalid fail-on level: %s", *failOn)
+	}
+
+	severityOrder := map[models.Severity]int{
+		models.Low:      1,
+		models.Medium:   2,
+		models.High:     3,
+		models.Critical: 4,
+	}
+
+	// Check if vulnerabilities at or above threshold exist
+	failCount := 0
+	for _, dep := range result.Dependencies {
+		for _, vuln := range dep.Vulnerabilities {
+			if severityOrder[vuln.Severity] >= severityOrder[minSev] {
+				failCount++
+			}
+		}
+	}
+
+	// Output summary
+	switch *format {
+	case "text":
+		fmt.Printf("CI Check: %s and above\n", *failOn)
+		if failCount == 0 {
+			fmt.Printf("✓ No vulnerabilities at or above %s level\n", *failOn)
+			return nil
+		}
+		fmt.Printf("✗ Found %d vulnerabilities at or above %s level\n", failCount, *failOn)
+		os.Exit(1)
+	case "json":
+		export.JSON(result, os.Stdout)
+	case "csv":
+		export.CSV(result, os.Stdout)
+	case "markdown":
+		export.Markdown(result, os.Stdout)
+	default:
+		return fmt.Errorf("unknown format: %s", *format)
+	}
+
+	// Exit with code 1 if vulns found
+	if failCount > 0 {
+		os.Exit(1)
+	}
+
+	return nil
 }
 
 func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *models.DependencyGraph) *models.ScanResult {
