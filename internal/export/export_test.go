@@ -6,25 +6,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 func TestCSVExport(t *testing.T) {
 	now := time.Now()
-	result := &models.ScanResult{
+	result := &types.ScanResult{
 		ProjectPath: "/test",
 		ScannedAt:   now,
 		LockFile:    "package-lock.json",
-		Dependencies: []models.Dependency{
+		Dependencies: []types.Dependency{
 			{
 				Name:    "express",
 				Version: "4.18.0",
-				Type:    models.Production,
-				Vulnerabilities: []models.Vulnerability{
+				Type:    types.Production,
+				Vulnerabilities: []types.Vulnerability{
 					{
 						ID:       "CVE-2024-1234",
 						Summary:  "XSS vulnerability",
-						Severity: models.Medium,
+						Severity: types.Medium,
 						RiskScore: 45,
 					},
 				},
@@ -32,8 +32,8 @@ func TestCSVExport(t *testing.T) {
 			{
 				Name:            "lodash",
 				Version:         "4.17.21",
-				Type:            models.Production,
-				Vulnerabilities: []models.Vulnerability{},
+				Type:            types.Production,
+				Vulnerabilities: []types.Vulnerability{},
 			},
 		},
 		CriticalVulns: 0,
@@ -59,20 +59,20 @@ func TestCSVExport(t *testing.T) {
 
 func TestMarkdownExport(t *testing.T) {
 	now := time.Now()
-	result := &models.ScanResult{
+	result := &types.ScanResult{
 		ProjectPath: "/test",
 		ScannedAt:   now,
 		LockFile:    "package-lock.json",
-		Dependencies: []models.Dependency{
+		Dependencies: []types.Dependency{
 			{
 				Name:    "express",
 				Version: "4.18.0",
-				Type:    models.Production,
-				Vulnerabilities: []models.Vulnerability{
+				Type:    types.Production,
+				Vulnerabilities: []types.Vulnerability{
 					{
 						ID:       "CVE-2024-1234",
 						Summary:  "XSS vulnerability",
-						Severity: models.Critical,
+						Severity: types.Critical,
 						RiskScore: 95,
 					},
 				},
@@ -98,16 +98,16 @@ func TestMarkdownExport(t *testing.T) {
 
 func TestJSONExport(t *testing.T) {
 	now := time.Now()
-	result := &models.ScanResult{
+	result := &types.ScanResult{
 		ProjectPath: "/test",
 		ScannedAt:   now,
 		LockFile:    "package-lock.json",
-		Dependencies: []models.Dependency{
+		Dependencies: []types.Dependency{
 			{
 				Name:            "express",
 				Version:         "4.18.0",
-				Type:            models.Production,
-				Vulnerabilities: []models.Vulnerability{},
+				Type:            types.Production,
+				Vulnerabilities: []types.Vulnerability{},
 			},
 		},
 	}

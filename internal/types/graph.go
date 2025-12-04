@@ -1,4 +1,4 @@
-package models
+package types
 
 // DependencyNode reprezentuje pojedynczy package w dependency tree.
 type DependencyNode struct {

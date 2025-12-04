@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // CSV exports scan results in CSV format.
-func CSV(result *models.ScanResult, w io.Writer) error {
+func CSV(result *types.ScanResult, w io.Writer) error {
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
 

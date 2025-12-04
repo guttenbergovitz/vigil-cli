@@ -1,4 +1,4 @@
-package scanner
+package lockfile
 
 import (
 	"crypto/sha256"
@@ -7,11 +7,11 @@ import (
 	"io"
 	"os"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // SaveCache writes scan results to cache file (.vigil.cache).
-func SaveCache(path string, result *models.ScanResult) error {
+func SaveCache(path string, result *types.ScanResult) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create cache file: %w", err)
@@ -29,14 +29,14 @@ func SaveCache(path string, result *models.ScanResult) error {
 }
 
 // LoadCache reads scan results from cache file.
-func LoadCache(path string) (*models.ScanResult, error) {
+func LoadCache(path string) (*types.ScanResult, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open cache file: %w", err)
 	}
 	defer file.Close()
 
-	var result models.ScanResult
+	var result types.ScanResult
 	if err := json.NewDecoder(file).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode cache: %w", err)
 	}

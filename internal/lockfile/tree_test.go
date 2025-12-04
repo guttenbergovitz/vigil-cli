@@ -1,16 +1,16 @@
-package scanner
+package lockfile
 
 import (
 	"testing"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 func TestBuildDependencyTree(t *testing.T) {
 	tests := []struct {
 		name    string
 		deps    *Dependencies
-		want    []models.Dependency
+		want    []types.Dependency
 		wantErr bool
 	}{
 		{
@@ -21,11 +21,11 @@ func TestBuildDependencyTree(t *testing.T) {
 				},
 				Development: make(map[string]string),
 			},
-			want: []models.Dependency{
+			want: []types.Dependency{
 				{
 					Name:    "express",
 					Version: "4.18.0",
-					Type:    models.Production,
+					Type:    types.Production,
 				},
 			},
 			wantErr: false,
@@ -42,11 +42,11 @@ func TestBuildDependencyTree(t *testing.T) {
 					"typescript": "5.0.0",
 				},
 			},
-			want: []models.Dependency{
-				{Name: "express", Version: "4.18.0", Type: models.Production},
-				{Name: "lodash", Version: "4.17.21", Type: models.Production},
-				{Name: "jest", Version: "29.0.0", Type: models.Development},
-				{Name: "typescript", Version: "5.0.0", Type: models.Development},
+			want: []types.Dependency{
+				{Name: "express", Version: "4.18.0", Type: types.Production},
+				{Name: "lodash", Version: "4.17.21", Type: types.Production},
+				{Name: "jest", Version: "29.0.0", Type: types.Development},
+				{Name: "typescript", Version: "5.0.0", Type: types.Development},
 			},
 			wantErr: false,
 		},
@@ -56,7 +56,7 @@ func TestBuildDependencyTree(t *testing.T) {
 				Production:  make(map[string]string),
 				Development: make(map[string]string),
 			},
-			want:    []models.Dependency{},
+			want:    []types.Dependency{},
 			wantErr: false,
 		},
 	}

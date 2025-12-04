@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // Client provides access to NVD API for CVE data
@@ -72,7 +72,7 @@ type QueryResponse struct {
 // QueryCPE queries NVD for vulnerabilities by CPE
 // CPE format: cpe:2.3:a:vendor:product:version:*:*:*:*:*:*:*
 // Note: This requires NVD API key and may be rate-limited
-func (c *Client) QueryCPE(vendor, product, version string) ([]models.Vulnerability, error) {
+func (c *Client) QueryCPE(vendor, product, version string) ([]types.Vulnerability, error) {
 	// Build CPE URI
 	cpeURI := fmt.Sprintf("cpe:2.3:a:%s:%s:%s:*:*:*:*:*:*:*", vendor, product, version)
 
@@ -98,7 +98,7 @@ func (c *Client) QueryCPE(vendor, product, version string) ([]models.Vulnerabili
 		return nil, fmt.Errorf("decode NVD response: %w", err)
 	}
 
-	var vulns []models.Vulnerability
+	var vulns []types.Vulnerability
 	for _, vuln := range queryResp.Vulnerabilities {
 		summary := ""
 		if len(vuln.CVE.Descriptions) > 0 {
@@ -107,7 +107,7 @@ func (c *Client) QueryCPE(vendor, product, version string) ([]models.Vulnerabili
 
 		// Extract CVSS score from metrics
 		cvssScore := 0.0
-		severity := models.Low
+		severity := types.Low
 		if len(vuln.CVE.Metrics.CVSSMetricV31) > 0 {
 			cvssData := vuln.CVE.Metrics.CVSSMetricV31[0].CVSSData
 			cvssScore = cvssData.BaseScore
@@ -121,11 +121,11 @@ func (c *Client) QueryCPE(vendor, product, version string) ([]models.Vulnerabili
 			cvssScore = cvssData.BaseScore
 			// Map CVSS v2 score to severity
 			if cvssScore >= 9.0 {
-				severity = models.Critical
+				severity = types.Critical
 			} else if cvssScore >= 7.0 {
-				severity = models.High
+				severity = types.High
 			} else if cvssScore >= 4.0 {
-				severity = models.Medium
+				severity = types.Medium
 			}
 		}
 
@@ -136,7 +136,7 @@ func (c *Client) QueryCPE(vendor, product, version string) ([]models.Vulnerabili
 			}
 		}
 
-		vulns = append(vulns, models.Vulnerability{
+		vulns = append(vulns, types.Vulnerability{
 			ID:          vuln.CVE.ID,
 			Summary:     summary,
 			Severity:    severity,
@@ -151,7 +151,7 @@ func (c *Client) QueryCPE(vendor, product, version string) ([]models.Vulnerabili
 
 // QueryCVE queries NVD API for a specific CVE ID
 // Returns CVE data including title, description, and severity from MITRE/NVD
-func (c *Client) QueryCVE(cveID string) (*models.Vulnerability, error) {
+func (c *Client) QueryCVE(cveID string) (*types.Vulnerability, error) {
 	// Build URL with API key if available
 	url := fmt.Sprintf("%s?cveId=%s", c.endpoint, cveID)
 	if c.apiKey != "" {
@@ -244,7 +244,7 @@ func (c *Client) QueryCVE(cveID string) (*models.Vulnerability, error) {
 	// Extract CVSS score from metrics (prefer V3.1, then V3.0, then V2)
 	cvssScore := 0.0
 	var cvssVector string
-	severity := models.Low
+	severity := types.Low
 	
 	// Try CVSS v3.1 first
 	if len(vuln.CVE.Metrics.CVSSMetricV31) > 0 {
@@ -264,11 +264,11 @@ func (c *Client) QueryCVE(cveID string) (*models.Vulnerability, error) {
 		cvssScore = cvssData.BaseScore
 		// Map CVSS v2 score to severity
 		if cvssScore >= 9.0 {
-			severity = models.Critical
+			severity = types.Critical
 		} else if cvssScore >= 7.0 {
-			severity = models.High
+			severity = types.High
 		} else if cvssScore >= 4.0 {
-			severity = models.Medium
+			severity = types.Medium
 		}
 	}
 
@@ -279,7 +279,7 @@ func (c *Client) QueryCVE(cveID string) (*models.Vulnerability, error) {
 		}
 	}
 
-	return &models.Vulnerability{
+	return &types.Vulnerability{
 		ID:            vuln.CVE.ID,
 		CVEID:         vuln.CVE.ID,
 		Summary:       title,
@@ -295,32 +295,32 @@ func (c *Client) QueryCVE(cveID string) (*models.Vulnerability, error) {
 	}, nil
 }
 
-// parseSeverity converts CVSS severity string to models.Severity
-func parseSeverity(s string) models.Severity {
+// parseSeverity converts CVSS severity string to types.Severity
+func parseSeverity(s string) types.Severity {
 	severityUpper := strings.ToUpper(strings.TrimSpace(s))
 	switch severityUpper {
 	case "CRITICAL":
-		return models.Critical
+		return types.Critical
 	case "HIGH":
-		return models.High
+		return types.High
 	case "MEDIUM":
-		return models.Medium
+		return types.Medium
 	case "LOW":
-		return models.Low
+		return types.Low
 	default:
 		// Try to match partial strings
 		if strings.Contains(severityUpper, "CRITICAL") {
-			return models.Critical
+			return types.Critical
 		}
 		if strings.Contains(severityUpper, "HIGH") {
-			return models.High
+			return types.High
 		}
 		if strings.Contains(severityUpper, "MEDIUM") {
-			return models.Medium
+			return types.Medium
 		}
 		if strings.Contains(severityUpper, "LOW") {
-			return models.Low
+			return types.Low
 		}
-		return models.Medium // Default to medium instead of low for unknown
+		return types.Medium // Default to medium instead of low for unknown
 	}
 }

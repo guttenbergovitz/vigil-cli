@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // Client provides access to OSV API.
@@ -66,7 +66,7 @@ type QueryResponse struct {
 }
 
 // Query retrieves vulnerabilities for a package from OSV API.
-func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
+func (c *Client) Query(pkg, version string) ([]types.Vulnerability, error) {
 	req := QueryRequest{}
 	// Build PURL - handle scoped packages (@scope/name)
 	// PURL format: pkg:npm/%40scope/name@version (@ encoded as %40)
@@ -102,19 +102,19 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	var vulns []models.Vulnerability
+	var vulns []types.Vulnerability
 	for _, v := range queryResp.Vulns {
 		// Extract severity with fallback to CVSS BaseSeverity
 		sev := extractSeverity(v.Severity)
 		if sev == "" && v.CVSSv3 != nil && v.CVSSv3.BaseSeverity != "" {
-			sev = models.Severity(strings.ToLower(v.CVSSv3.BaseSeverity))
+			sev = types.Severity(strings.ToLower(v.CVSSv3.BaseSeverity))
 		}
 		if sev == "" && v.CVSSv2 != nil && v.CVSSv2.Score > 0 {
 			// Derive severity from CVSS v2 score
 			sev = deriveSeverityFromCVSSv2(v.CVSSv2.Score)
 		}
 		if sev == "" {
-			sev = models.Medium
+			sev = types.Medium
 		}
 
 		// Extract CVSS score - try cvssv3 first, then cvssv2, then database_specific
@@ -179,7 +179,7 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 			cveID = v.ID
 		}
 
-		vuln := models.Vulnerability{
+		vuln := types.Vulnerability{
 			ID:          v.ID,
 			CVEID:       cveID,
 			Summary:     v.Summary,
@@ -203,15 +203,15 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 func (c *Client) BatchQuery(pkgs []struct {
 	name    string
 	version string
-}) (map[string][]models.Vulnerability, error) {
-	results := make(map[string][]models.Vulnerability)
+}) (map[string][]types.Vulnerability, error) {
+	results := make(map[string][]types.Vulnerability)
 
 	for _, pkg := range pkgs {
 		key := fmt.Sprintf("%s@%s", pkg.name, pkg.version)
 		vulns, err := c.Query(pkg.name, pkg.version)
 		if err != nil {
 			// Continue on error, mark as empty but don't fail
-			vulns = []models.Vulnerability{}
+			vulns = []types.Vulnerability{}
 		}
 		results[key] = vulns
 	}
@@ -221,18 +221,18 @@ func (c *Client) BatchQuery(pkgs []struct {
 
 // CalculateRiskScore computes a risk score based on severity and context.
 // Returns a value 0-100.
-func CalculateRiskScore(severity models.Severity, inProduction bool) int {
+func CalculateRiskScore(severity types.Severity, inProduction bool) int {
 	return CalculateRiskScoreWithDepth(severity, inProduction, 0)
 }
 
 // CalculateRiskScoreWithDepth computes risk score with supply chain depth modifier.
 // depth: 0 = direct, 1 = transitive (1 level), 2 = deeper, etc.
-func CalculateRiskScoreWithDepth(severity models.Severity, inProduction bool, depth int) int {
-	baseScore := map[models.Severity]int{
-		models.Critical: 90,
-		models.High:     70,
-		models.Medium:   50,
-		models.Low:      20,
+func CalculateRiskScoreWithDepth(severity types.Severity, inProduction bool, depth int) int {
+	baseScore := map[types.Severity]int{
+		types.Critical: 90,
+		types.High:     70,
+		types.Medium:   50,
+		types.Low:      20,
 	}
 
 	score := baseScore[severity]
@@ -266,7 +266,7 @@ func CalculateRiskScoreWithDepth(severity models.Severity, inProduction bool, de
 }
 
 // ScanGraphVulnerabilities scans all nodes in dependency graph against OSV API.
-func (c *Client) ScanGraphVulnerabilities(graph *models.DependencyGraph) error {
+func (c *Client) ScanGraphVulnerabilities(graph *types.DependencyGraph) error {
 	for _, node := range graph.Nodes {
 		vulns, err := c.Query(node.Name, node.Version)
 		if err != nil {
@@ -278,7 +278,7 @@ func (c *Client) ScanGraphVulnerabilities(graph *models.DependencyGraph) error {
 		for i := range vulns {
 			vulns[i].RiskScore = CalculateRiskScoreWithDepth(
 				vulns[i].Severity,
-				node.Type == models.Production,
+				node.Type == types.Production,
 				node.Depth,
 			)
 		}
@@ -294,7 +294,7 @@ func (c *Client) ScanGraphVulnerabilities(graph *models.DependencyGraph) error {
 // - string: "high"
 // - array: ["high"]
 // - object: {"cvssv3": {...}}
-func extractSeverity(sev interface{}) models.Severity {
+func extractSeverity(sev interface{}) types.Severity {
 	if sev == nil {
 		return ""
 	}
@@ -302,12 +302,12 @@ func extractSeverity(sev interface{}) models.Severity {
 	switch v := sev.(type) {
 	case string:
 		// Direct string value
-		return models.Severity(v)
+		return types.Severity(v)
 	case []interface{}:
 		// Array - take first element
 		if len(v) > 0 {
 			if str, ok := v[0].(string); ok {
-				return models.Severity(str)
+				return types.Severity(str)
 			}
 		}
 	case map[string]interface{}:
@@ -315,14 +315,14 @@ func extractSeverity(sev interface{}) models.Severity {
 		if cvss, ok := v["cvssv3"]; ok {
 			if cvssObj, ok := cvss.(map[string]interface{}); ok {
 				if severity, ok := cvssObj["severity"].(string); ok {
-					return models.Severity(severity)
+					return types.Severity(severity)
 				}
 			}
 		}
 		if cvss, ok := v["cvssv2"]; ok {
 			if cvssObj, ok := cvss.(map[string]interface{}); ok {
 				if severity, ok := cvssObj["severity"].(string); ok {
-					return models.Severity(severity)
+					return types.Severity(severity)
 				}
 			}
 		}
@@ -336,16 +336,16 @@ func extractSeverity(sev interface{}) models.Severity {
 // 0-3.9: Low
 // 4.0-6.9: Medium
 // 7.0-10.0: High/Critical
-func deriveSeverityFromCVSSv2(score float64) models.Severity {
+func deriveSeverityFromCVSSv2(score float64) types.Severity {
 	switch {
 	case score >= 9.0:
-		return models.Critical
+		return types.Critical
 	case score >= 7.0:
-		return models.High
+		return types.High
 	case score >= 4.0:
-		return models.Medium
+		return types.Medium
 	default:
-		return models.Low
+		return types.Low
 	}
 }
 

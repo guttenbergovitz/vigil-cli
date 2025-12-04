@@ -27,21 +27,23 @@ vigil report
 .
 ├── cmd/               # CLI entry points
 ├── internal/          # Private application code
-│   ├── scanner/       # Dependency tree analysis
-│   ├── ui/            # Terminal UI (TUI) components
-│   ├── osv/           # OSV API integration
-│   ├── nvd/           # NVD API integration
-│   └── github/        # GitHub Security Advisories integration
-├── pkg/               # Public libraries
+│   ├── cli/           # CLI commands and flags
 │   ├── config/        # Configuration handling
-│   ├── models/        # Data structures
-│   └── export/        # CSV, Markdown export
+│   ├── export/        # CSV, Markdown export
+│   ├── github/        # GitHub Security Advisories integration
+│   ├── lockfile/      # Dependency tree analysis & lock file parsing
+│   ├── nvd/           # NVD API integration
+│   ├── osv/           # OSV API integration
+│   ├── report/        # Reporting logic
+│   ├── scan/          # Core scanning orchestration
+│   ├── types/         # Domain data structures
+│   └── ui/            # Terminal UI (TUI) components
 ├── documentation/     # All docs
 │   ├── adr/           # Architecture decisions
 │   ├── spec/          # Technical specification
 │   ├── guides/        # Developer guidelines
 │   └── miss/          # Temporary notes
-└── tests/             # Test suite
+└── tests/             # Integration tests
 ```
 
 ## Building

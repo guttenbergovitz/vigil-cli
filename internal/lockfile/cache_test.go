@@ -1,4 +1,4 @@
-package scanner
+package lockfile
 
 import (
 	"os"
@@ -6,29 +6,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guttenbergovitz/vigil-cli/pkg/models"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 func TestCachePersistence(t *testing.T) {
 	tmpdir := t.TempDir()
 	cachePath := filepath.Join(tmpdir, ".vigil.cache")
 
-	result := &models.ScanResult{
+	result := &types.ScanResult{
 		Version:      1,
 		ProjectPath:  "/test/project",
 		ScannedAt:    time.Now().UTC(),
 		LockFile:     "package-lock.json",
 		LockFileHash: "abc123def456",
-		Dependencies: []models.Dependency{
+		Dependencies: []types.Dependency{
 			{
 				Name:    "express",
 				Version: "4.18.0",
-				Type:    models.Production,
-				Vulnerabilities: []models.Vulnerability{
+				Type:    types.Production,
+				Vulnerabilities: []types.Vulnerability{
 					{
 						ID:        "CVE-2024-1234",
 						Summary:   "XSS vulnerability",
-						Severity:  models.Medium,
+						Severity:  types.Medium,
 						RiskScore: 45,
 					},
 				},
