@@ -17,13 +17,23 @@ type ScanProgress struct {
 	CurrentVulns int
 	Completed    bool
 	Error        string
-	StartTime    time.Time
 }
 
 // Model represents the TUI state
 type Model struct {
-	progress ScanProgress
-	mu       sync.Mutex
+	progress  ScanProgress
+	startTime time.Time
+	result    *ScanResult // Final scan result to display
+	mu        sync.Mutex
+}
+
+// ScanResult holds the completed scan results for display
+type ScanResult struct {
+	TotalVulns    int
+	CriticalVulns int
+	HighVulns     int
+	MediumVulns   int
+	LowVulns      int
 }
 
 // Init initializes the model
@@ -45,6 +55,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DoneMsg:
 		m.mu.Lock()
 		m.progress.Completed = true
+		m.result = msg.Result
 		m.mu.Unlock()
 		return m, tea.Quit
 	case ErrorMsg:
@@ -106,7 +117,7 @@ func (m Model) renderScanning() string {
 	}
 
 	// Elapsed time
-	elapsed := time.Since(m.progress.StartTime).Seconds()
+	elapsed := time.Since(m.startTime).Seconds()
 	s += fmt.Sprintf("Elapsed: %.0fs\n", elapsed)
 
 	// Vulnerabilities found
@@ -120,10 +131,39 @@ func (m Model) renderScanning() string {
 }
 
 func (m Model) renderCompleted() string {
-	return lipgloss.NewStyle().
+	var s string
+
+	elapsed := time.Since(m.startTime).Seconds()
+	s += lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("42")).
-		Render("✓ Scan complete!\n")
+		Render(fmt.Sprintf("✓ Scan complete! (%.0fs)\n\n", elapsed))
+
+	if m.result != nil {
+		if m.result.TotalVulns == 0 {
+			s += lipgloss.NewStyle().
+				Foreground(lipgloss.Color("42")).
+				Render("✓ No vulnerabilities found\n")
+		} else {
+			s += "Vulnerabilities found:\n"
+			if m.result.CriticalVulns > 0 {
+				s += fmt.Sprintf("  🔴 Critical:  %d\n", m.result.CriticalVulns)
+			}
+			if m.result.HighVulns > 0 {
+				s += fmt.Sprintf("  🟠 High:      %d\n", m.result.HighVulns)
+			}
+			if m.result.MediumVulns > 0 {
+				s += fmt.Sprintf("  🟡 Medium:    %d\n", m.result.MediumVulns)
+			}
+			if m.result.LowVulns > 0 {
+				s += fmt.Sprintf("  🔵 Low:       %d\n", m.result.LowVulns)
+			}
+			s += fmt.Sprintf("\n  Total: %d vulnerabilities\n", m.result.TotalVulns)
+		}
+	}
+
+	s += "\nPress q to exit\n"
+	return s
 }
 
 func (m Model) renderError() string {
@@ -138,7 +178,9 @@ type ProgressMsg struct {
 	Progress ScanProgress
 }
 
-type DoneMsg struct{}
+type DoneMsg struct {
+	Result *ScanResult
+}
 
 type ErrorMsg struct {
 	Err string
@@ -147,8 +189,7 @@ type ErrorMsg struct {
 // NewModel creates a new model
 func NewModel() Model {
 	return Model{
-		progress: ScanProgress{
-			StartTime: time.Now(),
-		},
+		startTime: time.Now(),
+		progress:  ScanProgress{},
 	}
 }

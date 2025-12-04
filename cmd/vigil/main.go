@@ -174,7 +174,6 @@ func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHa
 				Total:        len(graph.Nodes),
 				CurrentPkg:   node.Name + "@" + node.Version,
 				CurrentVulns: totalVulns,
-				StartTime:    time.Now(),
 			},
 		})
 
@@ -195,11 +194,19 @@ func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHa
 		totalVulns += len(vulns)
 	}
 
-	// Send completion
-	program.Send(ui.DoneMsg{})
-
 	// Build result
 	result := buildScanResultFromGraph(absPath, lockFile, lockHash, graph)
+
+	// Send completion with results
+	program.Send(ui.DoneMsg{
+		Result: &ui.ScanResult{
+			TotalVulns:    result.TotalVulns,
+			CriticalVulns: result.CriticalVulns,
+			HighVulns:     result.HighVulns,
+			MediumVulns:   result.MediumVulns,
+			LowVulns:      result.LowVulns,
+		},
+	})
 
 	// Save cache
 	cachePath := filepath.Join(absPath, ".vigil.cache")
