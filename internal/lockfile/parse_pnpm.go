@@ -104,6 +104,14 @@ func ParsePnpmLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 			Dev          bool              `yaml:"dev"`
 			Dependencies map[string]string `yaml:"dependencies"`
 		} `yaml:"packages"`
+		// pnpm v5/v9 root dependencies
+		Dependencies    map[string]interface{} `yaml:"dependencies"`
+		DevDependencies map[string]interface{} `yaml:"devDependencies"`
+		// pnpm v6+ importers
+		Importers map[string]struct {
+			Dependencies    map[string]interface{} `yaml:"dependencies"`
+			DevDependencies map[string]interface{} `yaml:"devDependencies"`
+		} `yaml:"importers"`
 	}
 
 	decoder := yaml.NewDecoder(r)
@@ -113,8 +121,6 @@ func ParsePnpmLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 
 	graph := types.NewDependencyGraph()
 
-	// Parse package path format: "name@version" or "@scope/name@version" or "name/subpath@version"
-	// Parse package path format: "name@version" or "@scope/name@version" or "name/subpath@version"
 	// Parse package path format: "name@version" or "@scope/name@version" or "name/subpath@version"
 	extractNameVersion := func(pkgPath string) (name, version string) {
 		// Strip peer dependencies suffix if present (e.g. "/pkg@1.0.0(peer@2.0.0)")
@@ -182,13 +188,8 @@ func ParsePnpmLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 			typ = types.Development
 		}
 
-		// Determine if direct (no "/" after version in path)
-		isDirect := !strings.Contains(pkgPath[strings.LastIndex(pkgPath, "@")+1+len(version):], "/")
-
-		graph.AddNode(name, version, typ, isDirect)
-		if isDirect {
-			graph.Root = append(graph.Root, name+"@"+version)
-		}
+		// Initially assume NOT direct, we will mark roots later
+		graph.AddNode(name, version, typ, false)
 	}
 
 	// Second pass: add edges (dependencies)
@@ -206,8 +207,92 @@ func ParsePnpmLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 
 		// Add edges to children
 		for childName, childVersion := range pkg.Dependencies {
+			// childVersion might be a version or a reference
+			// In pnpm, it's often just the version, but sometimes it's a reference
+			// For simplicity, we assume it matches a node in the graph
+			// But we need to find WHICH node matches childName + childVersion
+
+			// Simple matching: look for a node with this name and version
+			// This is imperfect because childVersion might be a range or alias
+			// But for pnpm lockfile, it's usually resolved version
+
 			childKey := childName + "@" + childVersion
 			graph.AddEdge(parentKey, childKey)
+		}
+	}
+
+	// Identify roots
+	// Collect all direct dependencies from root or importers
+	roots := make(map[string]string) // name -> version
+
+	// Helper to add roots
+	addRoots := func(deps map[string]interface{}) {
+		for name, val := range deps {
+			var version string
+
+			switch v := val.(type) {
+			case string:
+				version = v
+			case map[string]interface{}:
+				// pnpm v6+ format: { "specifier": "^1.0.0", "version": "1.0.0" }
+				if ver, ok := v["version"].(string); ok {
+					version = ver
+				} else if spec, ok := v["specifier"].(string); ok {
+					// Fallback to specifier if version missing (unlikely for lockfile)
+					version = spec
+				}
+			}
+
+			if version == "" {
+				continue
+			}
+
+			// Clean version (strip specifiers if needed)
+			// For pnpm, it's usually the version or "link:..."
+			if strings.HasPrefix(version, "link:") {
+				continue
+			}
+
+			// Handle "version(peers)" format in dependencies
+			if idx := strings.Index(version, "("); idx > 0 {
+				version = version[:idx]
+			}
+
+			roots[name] = version
+		}
+	}
+
+	// Add from root dependencies (v5/v9)
+	addRoots(lockFile.Dependencies)
+	addRoots(lockFile.DevDependencies)
+
+	// Add from importers (v6+)
+	// Usually "." is the root importer
+	for _, importer := range lockFile.Importers {
+		addRoots(importer.Dependencies)
+		addRoots(importer.DevDependencies)
+	}
+
+	// Mark root nodes
+	for name, version := range roots {
+		// Try to find matching node
+		// Exact match
+		key := name + "@" + version
+		if node, ok := graph.Nodes[key]; ok {
+			node.Direct = true
+			graph.Root = append(graph.Root, key)
+			continue
+		}
+
+		// If exact match fails (e.g. version mismatch or complex specifier),
+		// try to find ANY node with this name (fallback)
+		// This is risky but better than missing it
+		for nodeKey, node := range graph.Nodes {
+			if node.Name == name && node.Version == version {
+				node.Direct = true
+				graph.Root = append(graph.Root, nodeKey)
+				break
+			}
 		}
 	}
 
