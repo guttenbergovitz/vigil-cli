@@ -30,7 +30,12 @@ func Markdown(result *models.ScanResult, w io.Writer) error {
 		var vulns []models.Vulnerability
 		for _, dep := range result.Dependencies {
 			for _, v := range dep.Vulnerabilities {
-				if v.Severity == severity {
+				// Use CVESeverity from NVD if available, otherwise use Severity
+				vSeverity := v.Severity
+				if v.CVESeverity != "" {
+					vSeverity = v.CVESeverity
+				}
+				if vSeverity == severity {
 					vulns = append(vulns, v)
 				}
 			}
@@ -57,7 +62,28 @@ func Markdown(result *models.ScanResult, w io.Writer) error {
 
 			fmt.Fprintf(w, "### %d. %s\n\n", i+1, vuln.ID)
 			fmt.Fprintf(w, "- **Package:** %s@%s\n", depName, depVersion)
-			fmt.Fprintf(w, "- **Severity:** %s\n", vuln.Severity)
+			// Use CVESeverity from NVD if available
+			displaySeverity := vuln.Severity
+			if vuln.CVESeverity != "" {
+				displaySeverity = vuln.CVESeverity
+			}
+			fmt.Fprintf(w, "- **Severity:** %s\n", displaySeverity)
+			if vuln.CVSSScore > 0 {
+				fmt.Fprintf(w, "- **CVSS Score:** %.1f/10.0", vuln.CVSSScore)
+				if vuln.CVSSVector != "" {
+					fmt.Fprintf(w, " (%s)", vuln.CVSSVector)
+				}
+				fmt.Fprintf(w, "\n")
+			}
+			if vuln.CVEID != "" && vuln.CVEID != vuln.ID {
+				fmt.Fprintf(w, "- **CVE ID:** %s\n", vuln.CVEID)
+			}
+			if vuln.CVETitle != "" {
+				fmt.Fprintf(w, "- **Title:** %s\n", vuln.CVETitle)
+			}
+			if vuln.CVEDescription != "" && vuln.CVEDescription != vuln.Summary {
+				fmt.Fprintf(w, "- **Description:** %s\n", vuln.CVEDescription)
+			}
 			fmt.Fprintf(w, "- **Risk Score:** %d/100\n", vuln.RiskScore)
 			fmt.Fprintf(w, "- **Summary:** %s\n", vuln.Summary)
 

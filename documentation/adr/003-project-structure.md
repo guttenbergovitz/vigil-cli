@@ -15,8 +15,10 @@ Adopt standard Go project layout:
 cmd/vigil/           # CLI binary entry point
 internal/
   ├── scanner/       # Dependency tree analysis logic
-  ├── report/        # Report generation
-  └── osv/           # OSV API client
+  ├── ui/            # Terminal UI (TUI) components
+  ├── osv/           # OSV API client
+  ├── nvd/           # NVD API client
+  └── github/        # GitHub Security Advisories API client
 pkg/
   ├── config/        # Config file parsing
   ├── models/        # Shared data structures

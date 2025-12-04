@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -116,14 +117,41 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 			sev = models.Medium
 		}
 
-		// Extract CVSS score
+		// Extract CVSS score - try cvssv3 first, then cvssv2, then database_specific
 		var cvssScore float64
 		var cvssVector string
-		if v.CVSSv3 != nil && v.CVSSv3.Score > 0 {
-			cvssScore = v.CVSSv3.Score
+		if v.CVSSv3 != nil {
+			// Try Score first, then BaseScore
+			if v.CVSSv3.Score > 0 {
+				cvssScore = v.CVSSv3.Score
+			} else if v.CVSSv3.BaseScore > 0 {
+				cvssScore = v.CVSSv3.BaseScore
+			}
 			cvssVector = v.CVSSv3.Vector
 		} else if v.CVSSv2 != nil && v.CVSSv2.Score > 0 {
 			cvssScore = v.CVSSv2.Score
+		}
+		
+		// If still no CVSS, try to extract from database_specific
+		if cvssScore == 0 && v.DatabaseSpecific != nil {
+			if dbSpec, ok := v.DatabaseSpecific.(map[string]interface{}); ok {
+				// Try common CVSS fields in database_specific
+				if cvssVal, ok := dbSpec["cvss_score"]; ok {
+					if score, ok := cvssVal.(float64); ok {
+						cvssScore = score
+					}
+				}
+				if cvssVal, ok := dbSpec["cvss3_score"]; ok {
+					if score, ok := cvssVal.(float64); ok {
+						cvssScore = score
+					}
+				}
+				if vectorVal, ok := dbSpec["cvss_vector"]; ok {
+					if vec, ok := vectorVal.(string); ok {
+						cvssVector = vec
+					}
+				}
+			}
 		}
 
 		var published, modified *time.Time
@@ -143,8 +171,17 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 			refs[i] = ref.URL
 		}
 
+		// Extract CVE ID from references if ID is GHSA-*
+		cveID := ""
+		if !strings.HasPrefix(v.ID, "CVE-") {
+			cveID = extractCVEFromReferences(v.ID, v.References)
+		} else {
+			cveID = v.ID
+		}
+
 		vuln := models.Vulnerability{
 			ID:          v.ID,
+			CVEID:       cveID,
 			Summary:     v.Summary,
 			Description: v.Details,
 			Severity:    sev,
@@ -310,6 +347,34 @@ func deriveSeverityFromCVSSv2(score float64) models.Severity {
 	default:
 		return models.Low
 	}
+}
+
+var cveRegex = regexp.MustCompile(`CVE-\d{4}-\d{4,}`)
+
+// extractCVEFromReferences extracts CVE ID from OSV references.
+// When OSV returns GHSA-* ID, CVE might be in references URLs or IDs.
+// Returns CVE ID if found, empty string otherwise.
+func extractCVEFromReferences(id string, references []struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}) string {
+	// If ID is already a CVE, return it
+	if strings.HasPrefix(id, "CVE-") {
+		return id
+	}
+
+	// Look for CVE pattern in references URLs
+	// CVE IDs can appear in URLs like:
+	// - https://nvd.nist.gov/vuln/detail/CVE-2024-1234
+	// - https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2024-1234
+	for _, ref := range references {
+		matches := cveRegex.FindString(ref.URL)
+		if matches != "" {
+			return matches
+		}
+	}
+
+	return ""
 }
 
 // extractSourcesFromID extracts vulnerability sources based on ID format.
