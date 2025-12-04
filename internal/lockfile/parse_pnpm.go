@@ -35,16 +35,51 @@ func ParsePnpmLock(r io.Reader) (*Dependencies, error) {
 
 	// Track all packages
 	for pkgPath, pkg := range lockFile.Packages {
-		// pnpm format: "package-name@1.0.0" or "package-name@1.0.0/sub/dependency"
-		parts := strings.SplitN(pkgPath, "@", 2)
-		if len(parts) < 2 {
+		// Strip peer dependencies suffix if present (e.g. "/pkg@1.0.0(peer@2.0.0)")
+		if idx := strings.Index(pkgPath, "("); idx > 0 {
+			pkgPath = pkgPath[:idx]
+		}
+
+		// Strip leading slash from name if present
+		pkgPath = strings.TrimPrefix(pkgPath, "/")
+
+		// Determine where to split name and version
+		var splitIdx int
+		if strings.HasPrefix(pkgPath, "@") {
+			// Scoped package: @scope/name@version
+			// Find second @
+			firstAt := strings.Index(pkgPath[1:], "@")
+			if firstAt == -1 {
+				continue
+			}
+			splitIdx = firstAt + 1
+		} else {
+			// Regular package: name@version
+			// Find first @
+			splitIdx = strings.Index(pkgPath, "@")
+		}
+
+		if splitIdx <= 0 {
 			continue
 		}
 
-		name := parts[0]
-		// Extract version (everything after @ before next / if any)
-		versionPart := strings.SplitN(parts[1], "/", 2)
-		version := versionPart[0]
+		name := pkgPath[:splitIdx]
+		rest := pkgPath[splitIdx+1:]
+		var version string
+
+		// Handle pnpm v9 peer dependency separator "_"
+		// Format: version_peer1@ver_peer2@ver
+		// We want just the version
+		if idx := strings.Index(rest, "_"); idx > 0 {
+			version = rest[:idx]
+		} else {
+			version = rest
+		}
+
+		// Handle legacy path suffix if present (e.g. name@version/subpath)
+		if idx := strings.Index(version, "/"); idx > 0 {
+			version = version[:idx]
+		}
 
 		if version == "" {
 			continue
@@ -79,25 +114,53 @@ func ParsePnpmLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 	graph := types.NewDependencyGraph()
 
 	// Parse package path format: "name@version" or "@scope/name@version" or "name/subpath@version"
+	// Parse package path format: "name@version" or "@scope/name@version" or "name/subpath@version"
+	// Parse package path format: "name@version" or "@scope/name@version" or "name/subpath@version"
 	extractNameVersion := func(pkgPath string) (name, version string) {
-		// Find last @ which separates name from version
-		lastAtIdx := strings.LastIndex(pkgPath, "@")
-		if lastAtIdx <= 0 {
+		// Strip peer dependencies suffix if present (e.g. "/pkg@1.0.0(peer@2.0.0)")
+		if idx := strings.Index(pkgPath, "("); idx > 0 {
+			pkgPath = pkgPath[:idx]
+		}
+
+		// Strip leading slash from name if present
+		pkgPath = strings.TrimPrefix(pkgPath, "/")
+
+		// Determine where to split name and version
+		var splitIdx int
+		if strings.HasPrefix(pkgPath, "@") {
+			// Scoped package: @scope/name@version
+			// Find second @
+			firstAt := strings.Index(pkgPath[1:], "@")
+			if firstAt == -1 {
+				return "", ""
+			}
+			splitIdx = firstAt + 1
+		} else {
+			// Regular package: name@version
+			// Find first @
+			splitIdx = strings.Index(pkgPath, "@")
+		}
+
+		if splitIdx <= 0 {
 			return "", ""
 		}
 
-		// Check if there's a "/" after the last @ (means it's a path after version)
-		afterAt := pkgPath[lastAtIdx+1:]
-		slashIdx := strings.Index(afterAt, "/")
+		name = pkgPath[:splitIdx]
+		rest := pkgPath[splitIdx+1:]
 
-		if slashIdx >= 0 {
-			// Has path after version, extract version before the /
-			version = afterAt[:slashIdx]
-			name = pkgPath[:lastAtIdx]
+		// Handle pnpm v9 peer dependency separator "_"
+		// Format: version_peer1@ver_peer2@ver
+		// We want just the version
+		if idx := strings.Index(rest, "_"); idx > 0 {
+			version = rest[:idx]
 		} else {
-			// No path, last @ separates name and version
-			version = afterAt
-			name = pkgPath[:lastAtIdx]
+			version = rest
+		}
+
+		// Handle legacy path suffix if present (e.g. name@version/subpath)
+		// Though usually pnpm keys don't have both _ and / in this way, but let's be safe
+		if idx := strings.Index(version, "/"); idx > 0 {
+			version = version[:idx]
 		}
 
 		return name, version
