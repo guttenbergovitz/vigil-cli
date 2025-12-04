@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/guttenbergovitz/vigil-cli/pkg/models"
@@ -54,7 +55,14 @@ type QueryResponse struct {
 // Query retrieves vulnerabilities for a package from OSV API.
 func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 	req := QueryRequest{}
-	req.Package.PURL = fmt.Sprintf("pkg:npm/%s@%s", pkg, version)
+	// Build PURL - handle scoped packages (@scope/name)
+	// PURL format: pkg:npm/%40scope/name@version (@ encoded as %40)
+	purl := pkg
+	if strings.HasPrefix(pkg, "@") {
+		// Scoped package - @ in scope part needs encoding in PURL
+		purl = strings.ReplaceAll(pkg, "@", "%40")
+	}
+	req.Package.PURL = fmt.Sprintf("pkg:npm/%s@%s", purl, version)
 
 	reqBody, err := json.Marshal(req)
 	if err != nil {

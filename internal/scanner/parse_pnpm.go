@@ -76,7 +76,31 @@ func ParsePnpmLockGraph(r io.Reader) (*models.DependencyGraph, error) {
 	}
 
 	graph := models.NewDependencyGraph()
-	directDeps := make(map[string]bool) // track direct deps
+
+	// Parse package path format: "name@version" or "@scope/name@version" or "name/subpath@version"
+	extractNameVersion := func(pkgPath string) (name, version string) {
+		// Find last @ which separates name from version
+		lastAtIdx := strings.LastIndex(pkgPath, "@")
+		if lastAtIdx <= 0 {
+			return "", ""
+		}
+
+		// Check if there's a "/" after the last @ (means it's a path after version)
+		afterAt := pkgPath[lastAtIdx+1:]
+		slashIdx := strings.Index(afterAt, "/")
+
+		if slashIdx >= 0 {
+			// Has path after version, extract version before the /
+			version = afterAt[:slashIdx]
+			name = pkgPath[:lastAtIdx]
+		} else {
+			// No path, last @ separates name and version
+			version = afterAt
+			name = pkgPath[:lastAtIdx]
+		}
+
+		return name, version
+	}
 
 	// First pass: add all nodes
 	for pkgPath, pkg := range lockFile.Packages {
@@ -84,16 +108,8 @@ func ParsePnpmLockGraph(r io.Reader) (*models.DependencyGraph, error) {
 			continue
 		}
 
-		parts := strings.SplitN(pkgPath, "@", 2)
-		if len(parts) < 2 {
-			continue
-		}
-
-		name := parts[0]
-		versionPart := strings.SplitN(parts[1], "/", 2)
-		version := versionPart[0]
-
-		if version == "" {
+		name, version := extractNameVersion(pkgPath)
+		if name == "" || version == "" {
 			continue
 		}
 
@@ -102,12 +118,11 @@ func ParsePnpmLockGraph(r io.Reader) (*models.DependencyGraph, error) {
 			typ = models.Development
 		}
 
-		// Determine if direct (no slashes after version)
-		isDirect := len(versionPart) == 1
+		// Determine if direct (no "/" after version in path)
+		isDirect := !strings.Contains(pkgPath[strings.LastIndex(pkgPath, "@")+1+len(version):], "/")
 
 		graph.AddNode(name, version, typ, isDirect)
 		if isDirect {
-			directDeps[name+"@"+version] = true
 			graph.Root = append(graph.Root, name+"@"+version)
 		}
 	}
@@ -118,14 +133,10 @@ func ParsePnpmLockGraph(r io.Reader) (*models.DependencyGraph, error) {
 			continue
 		}
 
-		parts := strings.SplitN(pkgPath, "@", 2)
-		if len(parts) < 2 {
+		name, version := extractNameVersion(pkgPath)
+		if name == "" || version == "" {
 			continue
 		}
-
-		name := parts[0]
-		versionPart := strings.SplitN(parts[1], "/", 2)
-		version := versionPart[0]
 
 		parentKey := name + "@" + version
 
