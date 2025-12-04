@@ -52,23 +52,49 @@ func ParseNPMLock(r io.Reader) (*Dependencies, error) {
 	return deps, nil
 }
 
+// LockFileType represents the type of lock file.
+type LockFileType string
+
+const (
+	NPMLock  LockFileType = "npm"
+	YarnLock LockFileType = "yarn"
+	PnpmLock LockFileType = "pnpm"
+)
+
 // FindLockFile searches for supported lock files in the given directory.
-// Returns the filename of the first found lock file, or error if none found.
-func FindLockFile(dir string) (string, error) {
-	candidates := []string{
-		"package-lock.json",
-		"yarn.lock",
-		"pnpm-lock.yaml",
+// Returns the filename and type of the first found lock file, or error if none found.
+func FindLockFile(dir string) (string, LockFileType, error) {
+	candidates := []struct {
+		name string
+		typ  LockFileType
+	}{
+		{"package-lock.json", NPMLock},
+		{"yarn.lock", YarnLock},
+		{"pnpm-lock.yaml", PnpmLock},
 	}
 
 	for _, candidate := range candidates {
-		path := filepath.Join(dir, candidate)
+		path := filepath.Join(dir, candidate.name)
 		if _, err := os.Stat(path); err == nil {
-			return candidate, nil
+			return candidate.name, candidate.typ, nil
 		}
 	}
 
-	return "", errors.New("no supported lock file found (package-lock.json, yarn.lock, pnpm-lock.yaml)")
+	return "", "", errors.New("no supported lock file found (package-lock.json, yarn.lock, pnpm-lock.yaml)")
+}
+
+// ParseLockFile dispatches to the correct parser based on lock file type.
+func ParseLockFile(r io.Reader, typ LockFileType) (*Dependencies, error) {
+	switch typ {
+	case NPMLock:
+		return ParseNPMLock(r)
+	case PnpmLock:
+		return ParsePnpmLock(r)
+	case YarnLock:
+		return ParseYarnLock(r)
+	default:
+		return nil, fmt.Errorf("unknown lock file type: %s", typ)
+	}
 }
 
 // ParsePackageJSON extracts name and version from package.json.

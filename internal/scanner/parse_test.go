@@ -86,44 +86,146 @@ func TestParseNPMLockFile(t *testing.T) {
 	}
 }
 
-func TestFindLockFile(t *testing.T) {
+func TestParsePnpmLockFile(t *testing.T) {
+	input := []byte(`
+packages:
+  express@4.18.0:
+    dev: false
+  jest@29.0.0:
+    dev: true
+  lodash@4.17.21:
+    dev: false
+`)
+
+	got, err := ParsePnpmLock(bytes.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParsePnpmLock() error = %v", err)
+	}
+
+	// Check production deps
+	if len(got.Production) != 2 {
+		t.Errorf("production deps count: got %d, want 2", len(got.Production))
+	}
+	if got.Production["express"] != "4.18.0" {
+		t.Errorf("express version: got %s, want 4.18.0", got.Production["express"])
+	}
+	if got.Production["lodash"] != "4.17.21" {
+		t.Errorf("lodash version: got %s, want 4.17.21", got.Production["lodash"])
+	}
+
+	// Check dev deps
+	if len(got.Development) != 1 {
+		t.Errorf("dev deps count: got %d, want 1", len(got.Development))
+	}
+	if got.Development["jest"] != "29.0.0" {
+		t.Errorf("jest version: got %s, want 29.0.0", got.Development["jest"])
+	}
+}
+
+func TestParseLockFile(t *testing.T) {
 	tests := []struct {
 		name    string
-		files   []string
-		want    string
-		wantErr bool
+		typ     LockFileType
+		input   []byte
+		wantPkg string
+		wantVer string
 	}{
 		{
-			name:    "npm lock found",
-			files:   []string{"package-lock.json"},
-			want:    "package-lock.json",
-			wantErr: false,
+			name: "npm lock dispatch",
+			typ:  NPMLock,
+			input: []byte(`{
+  "lockfileVersion": 2,
+  "packages": {
+    "node_modules/express": {
+      "version": "4.18.0",
+      "dev": false
+    }
+  }
+}`),
+			wantPkg: "express",
+			wantVer: "4.18.0",
 		},
 		{
-			name:    "yarn lock found",
-			files:   []string{"yarn.lock"},
-			want:    "yarn.lock",
-			wantErr: false,
-		},
-		{
-			name:    "pnpm lock found",
-			files:   []string{"pnpm-lock.yaml"},
-			want:    "pnpm-lock.yaml",
-			wantErr: false,
-		},
-		{
-			name:    "no lock file",
-			files:   []string{"package.json"},
-			want:    "",
-			wantErr: true,
+			name: "pnpm lock dispatch",
+			typ:  PnpmLock,
+			input: []byte(`
+packages:
+  express@4.18.0:
+    dev: false
+`),
+			wantPkg: "express",
+			wantVer: "4.18.0",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// This test will use temporary files in real implementation
-			// For now, it documents expected behavior
-			_ = tt
+			got, err := ParseLockFile(bytes.NewReader(tt.input), tt.typ)
+			if err != nil {
+				t.Fatalf("ParseLockFile() error = %v", err)
+			}
+			if got.Production[tt.wantPkg] != tt.wantVer {
+				t.Errorf("package version: got %s, want %s", got.Production[tt.wantPkg], tt.wantVer)
+			}
 		})
 	}
+}
+
+func TestParseYarnLock(t *testing.T) {
+	t.Run("yarn_v1_format", func(t *testing.T) {
+		input := []byte(`express@4.18.0:
+  version: 4.18.0
+  dependencies:
+    body-parser: "~1.20.0"
+    cookie: 0.4.2
+
+body-parser@~1.20.0:
+  version: 1.20.0
+  dependencies:
+    bytes: 3.1.0
+`)
+		deps, err := ParseYarnLock(bytes.NewReader(input))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(deps.Production) != 2 {
+			t.Errorf("expected 2 production deps, got %d", len(deps.Production))
+		}
+
+		if deps.Production["express"] != "4.18.0" {
+			t.Errorf("expected express@4.18.0, got %s", deps.Production["express"])
+		}
+
+		if deps.Production["body-parser"] != "1.20.0" {
+			t.Errorf("expected body-parser@1.20.0, got %s", deps.Production["body-parser"])
+		}
+	})
+
+	t.Run("yarn_v2_format", func(t *testing.T) {
+		input := []byte(`"express@npm:4.18.0":
+  version: 4.18.0
+  dependencies:
+    cookie: "0.4.2"
+
+"body-parser@npm:1.20.0":
+  version: 1.20.0
+`)
+		deps, err := ParseYarnLock(bytes.NewReader(input))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(deps.Production) != 2 {
+			t.Errorf("expected 2 production deps, got %d", len(deps.Production))
+		}
+
+		if deps.Production["express"] != "4.18.0" {
+			t.Errorf("expected express@4.18.0, got %s", deps.Production["express"])
+		}
+
+		if deps.Production["body-parser"] != "1.20.0" {
+			t.Errorf("expected body-parser@1.20.0, got %s", deps.Production["body-parser"])
+		}
+	})
 }

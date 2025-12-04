@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/guttenbergovitz/vigil-cli/internal/osv"
 	"github.com/guttenbergovitz/vigil-cli/internal/scanner"
+	"github.com/guttenbergovitz/vigil-cli/internal/ui"
 	"github.com/guttenbergovitz/vigil-cli/pkg/export"
 	"github.com/guttenbergovitz/vigil-cli/pkg/models"
 )
@@ -46,6 +49,7 @@ func cmdScan(args []string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	skipDevDeps := fs.Bool("skip-devdeps", false, "Skip development dependencies")
 	outputFmt := fs.String("output", "", "Output format (json, csv, markdown)")
+	noTUI := fs.Bool("no-tui", false, "Disable interactive TUI (useful for CI/testing)")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -64,9 +68,9 @@ func cmdScan(args []string) error {
 	}
 
 	// Find lock file
-	lockFile, err := scanner.FindLockFile(absPath)
+	lockFile, lockType, err := scanner.FindLockFile(absPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("no lock file found in %s: %w\n\nSupported lock files: package-lock.json (npm), yarn.lock (yarn), pnpm-lock.yaml (pnpm)", absPath, err)
 	}
 
 	lockFilePath := filepath.Join(absPath, lockFile)
@@ -77,60 +81,243 @@ func cmdScan(args []string) error {
 		return fmt.Errorf("hash lock file: %w", err)
 	}
 
-	// Parse lock file
+	// Channel for scan results
+	resultChan := make(chan *models.ScanResult, 1)
+	errorChan := make(chan error, 1)
+	var wg sync.WaitGroup
+
+	var program *tea.Program
+	var finalModel tea.Model
+
+	if !*noTUI {
+		// Create Bubbletea model for progress display with alt screen
+		model := ui.NewModel()
+		program = tea.NewProgram(model, tea.WithAltScreen())
+	}
+
+	// Start scanning in goroutine
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result, err := performScan(absPath, lockFile, lockType, lockHash, lockFilePath, *skipDevDeps, program)
+		if err != nil {
+			errorChan <- err
+		} else {
+			resultChan <- result
+		}
+	}()
+
+	// Run TUI if enabled
+	if !*noTUI {
+		var err error
+		finalModel, err = program.Run()
+		if err != nil {
+			return fmt.Errorf("TUI error: %w", err)
+		}
+	} else {
+		// In non-TUI mode, just print progress to stdout
+		fmt.Println("Scanning...")
+	}
+
+	// Wait for scan to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// Check for scan errors or results
+	select {
+	case err := <-errorChan:
+		return err
+	case result := <-resultChan:
+		// Handle result
+		var model ui.Model
+		if finalModel != nil {
+			model = finalModel.(ui.Model)
+		}
+		return handleScanResult(result, *outputFmt, model)
+	case <-done:
+		// Scan completed but no result was sent
+		return fmt.Errorf("scan completed with no results")
+	case <-time.After(5 * time.Minute):
+		return fmt.Errorf("scan timeout: took longer than 5 minutes")
+	}
+}
+
+// sendToTUI sends a message to the TUI program if it exists
+func sendToTUI(program *tea.Program, msg tea.Msg) {
+	if program != nil {
+		program.Send(msg)
+	}
+}
+
+// performScan runs the actual scanning with progress updates
+func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHash, lockFilePath string, skipDevDeps bool, program *tea.Program) (*models.ScanResult, error) {
+	// Check if lock file path is valid
+	if lockFilePath == "" || lockFile == "" {
+		errMsg := "No lock file found. Please run this in a Node.js/TypeScript project with package-lock.json, yarn.lock, or pnpm-lock.yaml"
+		sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+		return nil, fmt.Errorf(errMsg)
+	}
+
+	// Parse lock file and build dependency graph
 	lockf, err := os.Open(lockFilePath)
 	if err != nil {
-		return fmt.Errorf("open lock file: %w", err)
+		errMsg := fmt.Sprintf("Failed to open lock file: %v", err)
+		sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+		return nil, fmt.Errorf(errMsg)
 	}
 	defer lockf.Close()
 
-	deps, err := scanner.ParseNPMLock(lockf)
-	if err != nil {
-		return fmt.Errorf("parse lock file: %w", err)
+	var graph *models.DependencyGraph
+
+	if lockType == scanner.PnpmLock {
+		graph, err = scanner.ParsePnpmLockGraph(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse pnpm-lock.yaml: %v", err)
+			sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+			return nil, fmt.Errorf(errMsg)
+		}
+	} else {
+		deps, err := scanner.ParseLockFile(lockf, lockType)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse lock file: %v", err)
+			sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+			return nil, fmt.Errorf(errMsg)
+		}
+
+		depTree, err := scanner.BuildDependencyTree(deps)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to build dependency tree: %v", err)
+			sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+			return nil, fmt.Errorf(errMsg)
+		}
+
+		graph = models.NewDependencyGraph()
+		for _, dep := range depTree {
+			graph.AddNode(dep.Name, dep.Version, dep.Type, true)
+			graph.Root = append(graph.Root, dep.Name+"@"+dep.Version)
+		}
+		graph.CalculateDepths()
 	}
 
-	// Build dependency tree
-	depTree, err := scanner.BuildDependencyTree(deps)
-	if err != nil {
-		return fmt.Errorf("build tree: %w", err)
+	// Check if graph has any nodes
+	if len(graph.Nodes) == 0 {
+		errMsg := "No dependencies found in lock file. The project may have no dependencies or the lock file is empty."
+		sendToTUI(program, ui.ErrorMsg{Err: errMsg})
+		return nil, fmt.Errorf(errMsg)
 	}
 
-	// Query OSV for each dependency
+	// Scan all dependencies sequentially to respect API rate limits
 	osvClient := osv.New("https://api.osv.dev/v1/query", 10)
 
-	for i := range depTree {
-		// Skip dev dependencies if requested
-		if *skipDevDeps && depTree[i].Type == "development" {
+	// Count nodes to scan and collect them
+	nodesToScan := 0
+	var nodesToScanList []*models.DependencyNode
+	for _, node := range graph.Nodes {
+		if skipDevDeps && node.Type == models.Development {
 			continue
 		}
+		nodesToScan++
+		nodesToScanList = append(nodesToScanList, node)
+	}
 
-		vulns, err := osvClient.Query(depTree[i].Name, depTree[i].Version)
+	fmt.Fprintf(os.Stderr, "DEBUG: Will scan %d nodes sequentially\n", nodesToScan)
+
+	// Send initial progress with total
+	sendToTUI(program, ui.ProgressMsg{
+		Progress: ui.ScanProgress{
+			Current:      0,
+			Total:        nodesToScan,
+			CurrentPkg:   "Starting scan...",
+			CurrentVulns: 0,
+		},
+	})
+
+	totalVulns := 0
+
+	// Scan packages sequentially
+	for current, node := range nodesToScanList {
+		// Send progress update
+		sendToTUI(program, ui.ProgressMsg{
+			Progress: ui.ScanProgress{
+				Current:      current + 1,
+				Total:        nodesToScan,
+				CurrentPkg:   node.Name + "@" + node.Version,
+				CurrentVulns: totalVulns,
+			},
+		})
+
+		// Query OSV API for this package
+		vulns, err := osvClient.Query(node.Name, node.Version)
 		if err != nil {
-			// Log but continue scanning other packages
-			fmt.Fprintf(os.Stderr, "warning: query %s@%s: %v\n", depTree[i].Name, depTree[i].Version, err)
+			fmt.Fprintf(os.Stderr, "DEBUG: Error scanning %s@%s: %v\n", node.Name, node.Version, err)
 			continue
 		}
 
-		// Calculate risk scores and count
+		// Process vulnerabilities
 		for j := range vulns {
-			vulns[j].RiskScore = osv.CalculateRiskScore(vulns[j].Severity, depTree[i].Type == "production")
+			vulns[j].RiskScore = osv.CalculateRiskScoreWithDepth(
+				vulns[j].Severity,
+				node.Type == models.Production,
+				node.Depth,
+			)
+
+			// Get parent dependency for tree visualization
+			parentDep := ""
+			if len(node.Parents) > 0 {
+				parentDep = node.Parents[0] // Use first parent
+			}
+
+			// Send vulnerability to TUI for dynamic display
+			sendToTUI(program, ui.VulnMsg{
+				Entry: ui.VulnEntry{
+					Package:      node.Name + "@" + node.Version,
+					CVE:          vulns[j].ID,
+					Severity:     string(vulns[j].Severity),
+					CVSS:         vulns[j].CVSSScore,
+					Description:  vulns[j].Summary,
+					DependencyOf: parentDep,
+				},
+			})
 		}
 
-		depTree[i].Vulnerabilities = vulns
+		node.Vulnerabilities = vulns
+		totalVulns += len(vulns)
+
+		// Be respectful to the API - add a small delay between requests
+		// This helps avoid rate limiting
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	// Build result
-	result := buildScanResult(absPath, lockFile, lockHash, depTree)
+	result := buildScanResultFromGraph(absPath, lockFile, lockHash, graph)
+
+	// Send completion with results
+	sendToTUI(program, ui.DoneMsg{
+		Result: &ui.ScanResult{
+			TotalVulns:    result.TotalVulns,
+			CriticalVulns: result.CriticalVulns,
+			HighVulns:     result.HighVulns,
+			MediumVulns:   result.MediumVulns,
+			LowVulns:      result.LowVulns,
+		},
+	})
 
 	// Save cache
 	cachePath := filepath.Join(absPath, ".vigil.cache")
 	if err := scanner.SaveCache(cachePath, result); err != nil {
-		return fmt.Errorf("save cache: %w", err)
+		return nil, fmt.Errorf("save cache: %w", err)
 	}
 
-	// Export if requested
-	if *outputFmt != "" {
-		switch *outputFmt {
+	return result, nil
+}
+
+// handleScanResult displays results and handles output
+func handleScanResult(result *models.ScanResult, outputFmt string, finalModel ui.Model) error {
+	if outputFmt != "" {
+		switch outputFmt {
 		case "csv":
 			if err := export.CSV(result, os.Stdout); err != nil {
 				return err
@@ -144,15 +331,23 @@ func cmdScan(args []string) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("unknown output format: %s", *outputFmt)
+			return fmt.Errorf("unknown output format: %s", outputFmt)
 		}
 	} else {
 		// Print summary
-		fmt.Printf("Scan complete: %d dependencies, %d vulnerabilities\n",
-			len(depTree), result.TotalVulns)
+		fmt.Printf("\n✓ Scan complete: %d dependencies, %d vulnerabilities\n",
+			len(result.Dependencies), result.TotalVulns)
+		if result.CriticalVulns > 0 {
+			fmt.Printf("  🔴 Critical: %d\n", result.CriticalVulns)
+		}
+		if result.HighVulns > 0 {
+			fmt.Printf("  🟠 High: %d\n", result.HighVulns)
+		}
+		if result.MediumVulns > 0 {
+			fmt.Printf("  🟡 Medium: %d\n", result.MediumVulns)
+		}
 	}
 
-	// Exit with status based on vulnerabilities
 	if result.CriticalVulns > 0 || result.HighVulns > 0 {
 		os.Exit(1)
 	}
@@ -161,14 +356,416 @@ func cmdScan(args []string) error {
 }
 
 func cmdReport(args []string) error {
-	return fmt.Errorf("report not implemented")
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	format := fs.String("format", "text", "Output format (text, csv, markdown)")
+	exportFile := fs.String("export", "", "Export to file")
+	filterLevel := fs.String("filter", "", "Filter by severity level (low, medium, high, critical)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
+
+	// Get project path (current directory by default, or first arg if provided)
+	projectPath := "./"
+	if fs.NArg() > 0 {
+		projectPath = fs.Arg(0)
+	}
+
+	absPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+
+	// Load cache
+	cachePath := filepath.Join(absPath, ".vigil.cache")
+	result, err := scanner.LoadCache(cachePath)
+	if err != nil {
+		return fmt.Errorf("load cache: %w", err)
+	}
+
+	// Filter results if requested
+	if *filterLevel != "" {
+		result = filterByLevel(result, *filterLevel)
+	}
+
+	// Determine output destination
+	var out *os.File = os.Stdout
+	if *exportFile != "" {
+		f, err := os.Create(*exportFile)
+		if err != nil {
+			return fmt.Errorf("create export file: %w", err)
+		}
+		defer f.Close()
+		out = f
+	}
+
+	// Generate report in requested format
+	switch *format {
+	case "text":
+		return reportText(result, out)
+	case "csv":
+		return export.CSV(result, out)
+	case "markdown":
+		return export.Markdown(result, out)
+	case "json":
+		return export.JSON(result, out)
+	default:
+		return fmt.Errorf("unknown format: %s", *format)
+	}
+}
+
+// filterByLevel filters scan results to show only vulns at or above specified level
+func filterByLevel(result *models.ScanResult, level string) *models.ScanResult {
+	severityMap := map[string]models.Severity{
+		"low":      models.Low,
+		"medium":   models.Medium,
+		"high":     models.High,
+		"critical": models.Critical,
+	}
+
+	minSev, ok := severityMap[level]
+	if !ok {
+		return result
+	}
+
+	severityOrder := map[models.Severity]int{
+		models.Low:      1,
+		models.Medium:   2,
+		models.High:     3,
+		models.Critical: 4,
+	}
+
+	filtered := &models.ScanResult{
+		Version:       result.Version,
+		ProjectPath:   result.ProjectPath,
+		ScannedAt:     result.ScannedAt,
+		LockFile:      result.LockFile,
+		LockFileHash:  result.LockFileHash,
+		Dependencies:  make([]models.Dependency, 0),
+		TotalVulns:    0,
+		CriticalVulns: 0,
+		HighVulns:     0,
+		MediumVulns:   0,
+		LowVulns:      0,
+	}
+
+	for _, dep := range result.Dependencies {
+		var filteredVulns []models.Vulnerability
+		for _, vuln := range dep.Vulnerabilities {
+			if severityOrder[vuln.Severity] >= severityOrder[minSev] {
+				filteredVulns = append(filteredVulns, vuln)
+			}
+		}
+
+		if len(filteredVulns) > 0 {
+			dep.Vulnerabilities = filteredVulns
+			filtered.Dependencies = append(filtered.Dependencies, dep)
+
+			// Recount vulnerabilities
+			for _, vuln := range filteredVulns {
+				filtered.TotalVulns++
+				switch vuln.Severity {
+				case models.Critical:
+					filtered.CriticalVulns++
+				case models.High:
+					filtered.HighVulns++
+				case models.Medium:
+					filtered.MediumVulns++
+				case models.Low:
+					filtered.LowVulns++
+				}
+			}
+		}
+	}
+
+	return filtered
+}
+
+// reportText generates a text report with supply chain context
+func reportText(result *models.ScanResult, out *os.File) error {
+	fmt.Fprintf(out, "Project: %s\n", result.ProjectPath)
+	fmt.Fprintf(out, "Scanned: %s\n", result.ScannedAt.Format(time.RFC3339))
+	fmt.Fprintf(out, "Lock file: %s\n", result.LockFile)
+	fmt.Fprintf(out, "Dependencies scanned: %d\n\n", len(result.Dependencies))
+
+	if result.TotalVulns == 0 {
+		fmt.Fprintf(out, "✓ No vulnerabilities found\n")
+		return nil
+	}
+
+	// Summary
+	fmt.Fprintf(out, "Vulnerabilities Summary:\n")
+	if result.CriticalVulns > 0 {
+		fmt.Fprintf(out, "  🔴 Critical: %d\n", result.CriticalVulns)
+	}
+	if result.HighVulns > 0 {
+		fmt.Fprintf(out, "  🟠 High: %d\n", result.HighVulns)
+	}
+	if result.MediumVulns > 0 {
+		fmt.Fprintf(out, "  🟡 Medium: %d\n", result.MediumVulns)
+	}
+	if result.LowVulns > 0 {
+		fmt.Fprintf(out, "  🔵 Low: %d\n", result.LowVulns)
+	}
+	fmt.Fprintf(out, "\n")
+
+	// Group by severity with supply chain context
+	if result.CriticalVulns > 0 {
+		fmt.Fprintf(out, "CRITICAL (%d)\n", result.CriticalVulns)
+		for _, dep := range result.Dependencies {
+			for _, vuln := range dep.Vulnerabilities {
+				if vuln.Severity == models.Critical {
+					depType := "production"
+					if dep.Type == models.Development {
+						depType = "dev"
+					}
+					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
+					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.CVSSScore > 0 {
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0", vuln.CVSSScore)
+						if vuln.CVSSVector != "" {
+							fmt.Fprintf(out, " %s", vuln.CVSSVector)
+						}
+						fmt.Fprintf(out, "\n")
+					}
+					fmt.Fprintf(out, "│   ├── Summary: %s\n", vuln.Summary)
+					if vuln.Description != "" && vuln.Description != vuln.Summary {
+						fmt.Fprintf(out, "│   ├── Description: %s\n", truncateText(vuln.Description, 100))
+					}
+					if len(vuln.References) > 0 {
+						fmt.Fprintf(out, "│   ├── References:\n")
+						for i, ref := range vuln.References {
+							if i < 3 { // Show first 3 references
+								fmt.Fprintf(out, "│   │   └── %s\n", ref)
+							}
+						}
+					}
+					if vuln.RiskScore > 0 {
+						fmt.Fprintf(out, "│   └── Risk Score: %d/100\n", vuln.RiskScore)
+					}
+				}
+			}
+		}
+		fmt.Fprintf(out, "\n")
+	}
+
+	if result.HighVulns > 0 {
+		fmt.Fprintf(out, "HIGH (%d)\n", result.HighVulns)
+		for _, dep := range result.Dependencies {
+			for _, vuln := range dep.Vulnerabilities {
+				if vuln.Severity == models.High {
+					depType := "production"
+					if dep.Type == models.Development {
+						depType = "dev"
+					}
+					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
+					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.CVSSScore > 0 {
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0", vuln.CVSSScore)
+						if vuln.CVSSVector != "" {
+							fmt.Fprintf(out, " %s", vuln.CVSSVector)
+						}
+						fmt.Fprintf(out, "\n")
+					}
+					fmt.Fprintf(out, "│   ├── Summary: %s\n", vuln.Summary)
+					if vuln.Description != "" && vuln.Description != vuln.Summary {
+						fmt.Fprintf(out, "│   ├── Description: %s\n", truncateText(vuln.Description, 100))
+					}
+					if vuln.RiskScore > 0 {
+						fmt.Fprintf(out, "│   └── Risk Score: %d/100\n", vuln.RiskScore)
+					}
+				}
+			}
+		}
+		fmt.Fprintf(out, "\n")
+	}
+
+	if result.MediumVulns > 0 {
+		fmt.Fprintf(out, "MEDIUM (%d)\n", result.MediumVulns)
+		for _, dep := range result.Dependencies {
+			for _, vuln := range dep.Vulnerabilities {
+				if vuln.Severity == models.Medium {
+					depType := "production"
+					if dep.Type == models.Development {
+						depType = "dev"
+					}
+					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
+					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.CVSSScore > 0 {
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0", vuln.CVSSScore)
+						if vuln.CVSSVector != "" {
+							fmt.Fprintf(out, " %s", vuln.CVSSVector)
+						}
+						fmt.Fprintf(out, "\n")
+					}
+					fmt.Fprintf(out, "│   ├── Summary: %s\n", vuln.Summary)
+					if vuln.Description != "" && vuln.Description != vuln.Summary {
+						fmt.Fprintf(out, "│   └── Description: %s\n", truncateText(vuln.Description, 100))
+					}
+				}
+			}
+		}
+		fmt.Fprintf(out, "\n")
+	}
+
+	if result.LowVulns > 0 {
+		fmt.Fprintf(out, "LOW (%d)\n", result.LowVulns)
+		for _, dep := range result.Dependencies {
+			for _, vuln := range dep.Vulnerabilities {
+				if vuln.Severity == models.Low {
+					depType := "production"
+					if dep.Type == models.Development {
+						depType = "dev"
+					}
+					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
+					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.CVSSScore > 0 {
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0", vuln.CVSSScore)
+						if vuln.CVSSVector != "" {
+							fmt.Fprintf(out, " %s", vuln.CVSSVector)
+						}
+						fmt.Fprintf(out, "\n")
+					}
+					fmt.Fprintf(out, "│   └── Summary: %s\n", vuln.Summary)
+				}
+			}
+		}
+		fmt.Fprintf(out, "\n")
+	}
+
+	fmt.Fprintf(out, "Note: Vulnerabilities in 'dev' dependencies are lower priority as they don't affect production.\n")
+	fmt.Fprintf(out, "Risk Score considers both severity and production context (0-100).\n")
+
+	return nil
 }
 
 func cmdCI(args []string) error {
-	return fmt.Errorf("ci not implemented")
+	fs := flag.NewFlagSet("ci", flag.ContinueOnError)
+	failOn := fs.String("fail-on", "high", "Fail if vulns at or above level (low, medium, high, critical)")
+	failOnCVSS := fs.Float64("fail-on-cvss", 0.0, "Fail if any vuln has CVSS >= this threshold (0.0-10.0)")
+	format := fs.String("format", "text", "Output format (text, csv, markdown, json)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
+
+	// Validate CVSS threshold
+	if *failOnCVSS < 0.0 || *failOnCVSS > 10.0 {
+		return fmt.Errorf("invalid CVSS threshold: must be between 0.0 and 10.0")
+	}
+
+	// Get project path (current directory by default, or first arg if provided)
+	projectPath := "./"
+	if fs.NArg() > 0 {
+		projectPath = fs.Arg(0)
+	}
+
+	absPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+
+	// Load cache
+	cachePath := filepath.Join(absPath, ".vigil.cache")
+	result, err := scanner.LoadCache(cachePath)
+	if err != nil {
+		return fmt.Errorf("load cache: %w", err)
+	}
+
+	// Determine fail threshold
+	severityMap := map[string]models.Severity{
+		"low":      models.Low,
+		"medium":   models.Medium,
+		"high":     models.High,
+		"critical": models.Critical,
+	}
+
+	minSev, ok := severityMap[*failOn]
+	if !ok {
+		return fmt.Errorf("invalid fail-on level: %s", *failOn)
+	}
+
+	severityOrder := map[models.Severity]int{
+		models.Low:      1,
+		models.Medium:   2,
+		models.High:     3,
+		models.Critical: 4,
+	}
+
+	// Check if vulnerabilities at or above threshold exist
+	failCount := 0
+	cvssFailCount := 0
+
+	for _, dep := range result.Dependencies {
+		for _, vuln := range dep.Vulnerabilities {
+			// Check severity threshold
+			if severityOrder[vuln.Severity] >= severityOrder[minSev] {
+				failCount++
+			}
+
+			// Check CVSS threshold (if specified and CVSS is available)
+			if *failOnCVSS > 0.0 && vuln.CVSSScore >= *failOnCVSS {
+				cvssFailCount++
+			}
+		}
+	}
+
+	// Output summary
+	switch *format {
+	case "text":
+		if *failOnCVSS > 0.0 {
+			fmt.Printf("CI Check: severity=%s, CVSS>=%.1f\n", *failOn, *failOnCVSS)
+			if failCount == 0 && cvssFailCount == 0 {
+				fmt.Printf("✓ No critical vulnerabilities found\n")
+				return nil
+			}
+			if failCount > 0 {
+				fmt.Printf("✗ Found %d vulns at or above %s level\n", failCount, *failOn)
+			}
+			if cvssFailCount > 0 {
+				fmt.Printf("✗ Found %d vulns with CVSS >= %.1f\n", cvssFailCount, *failOnCVSS)
+			}
+		} else {
+			fmt.Printf("CI Check: %s and above\n", *failOn)
+			if failCount == 0 {
+				fmt.Printf("✓ No vulnerabilities at or above %s level\n", *failOn)
+				return nil
+			}
+			fmt.Printf("✗ Found %d vulnerabilities at or above %s level\n", failCount, *failOn)
+		}
+		os.Exit(1)
+	case "json":
+		export.JSON(result, os.Stdout)
+	case "csv":
+		export.CSV(result, os.Stdout)
+	case "markdown":
+		export.Markdown(result, os.Stdout)
+	default:
+		return fmt.Errorf("unknown format: %s", *format)
+	}
+
+	// Exit with code 1 if vulns found
+	if failCount > 0 || cvssFailCount > 0 {
+		os.Exit(1)
+	}
+
+	return nil
 }
 
-func buildScanResult(projectPath, lockFile, lockHash string, deps []models.Dependency) *models.ScanResult {
+func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *models.DependencyGraph) *models.ScanResult {
+	// Convert graph nodes to flat dependency list
+	deps := make([]models.Dependency, 0, len(graph.Nodes))
+
+	for _, node := range graph.Nodes {
+		dep := models.Dependency{
+			Name:            node.Name,
+			Version:         node.Version,
+			Type:            node.Type,
+			Vulnerabilities: node.Vulnerabilities,
+		}
+		deps = append(deps, dep)
+	}
+
 	result := &models.ScanResult{
 		Version:      1,
 		ProjectPath:  projectPath,
@@ -179,8 +776,8 @@ func buildScanResult(projectPath, lockFile, lockHash string, deps []models.Depen
 	}
 
 	// Count vulnerabilities by severity
-	for _, dep := range deps {
-		for _, vuln := range dep.Vulnerabilities {
+	for _, node := range graph.Nodes {
+		for _, vuln := range node.Vulnerabilities {
 			result.TotalVulns++
 			switch vuln.Severity {
 			case models.Critical:
@@ -196,4 +793,12 @@ func buildScanResult(projectPath, lockFile, lockHash string, deps []models.Depen
 	}
 
 	return result
+}
+
+// truncateText limits text length and adds ellipsis if needed
+func truncateText(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "…"
 }

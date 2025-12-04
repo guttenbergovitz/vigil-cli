@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/guttenbergovitz/vigil-cli/pkg/models"
@@ -39,22 +40,41 @@ type QueryRequest struct {
 // QueryResponse represents the OSV API response.
 type QueryResponse struct {
 	Vulns []struct {
-		ID      string `json:"id"`
-		Summary string `json:"summary"`
-		Severity string `json:"severity"`
-		Published string `json:"published"`
-		Modified string `json:"modified"`
+		ID        string        `json:"id"`
+		Summary   string        `json:"summary"`
+		Details   string        `json:"details"`
+		Severity  interface{}   `json:"severity"` // Can be string, array, or object
+		Published string        `json:"published"`
+		Modified  string        `json:"modified"`
 		References []struct {
 			Type string `json:"type"`
 			URL  string `json:"url"`
 		} `json:"references"`
+		DatabaseSpecific interface{} `json:"database_specific"` // Contains CVSS info
+		// For NVD/CVE data
+		CVSSv3 *struct {
+			Score      float64 `json:"score"`
+			Vector     string  `json:"vectorString"`
+			BaseScore  float64 `json:"baseScore"`
+			BaseSeverity string `json:"baseSeverity"`
+		} `json:"cvssv3"`
+		CVSSv2 *struct {
+			Score float64 `json:"score"`
+		} `json:"cvssv2"`
 	} `json:"vulns"`
 }
 
 // Query retrieves vulnerabilities for a package from OSV API.
 func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 	req := QueryRequest{}
-	req.Package.PURL = fmt.Sprintf("pkg:npm/%s@%s", pkg, version)
+	// Build PURL - handle scoped packages (@scope/name)
+	// PURL format: pkg:npm/%40scope/name@version (@ encoded as %40)
+	purl := pkg
+	if strings.HasPrefix(pkg, "@") {
+		// Scoped package - @ in scope part needs encoding in PURL
+		purl = strings.ReplaceAll(pkg, "@", "%40")
+	}
+	req.Package.PURL = fmt.Sprintf("pkg:npm/%s@%s", purl, version)
 
 	reqBody, err := json.Marshal(req)
 	if err != nil {
@@ -83,9 +103,27 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 
 	var vulns []models.Vulnerability
 	for _, v := range queryResp.Vulns {
-		sev := models.Severity(v.Severity)
+		// Extract severity with fallback to CVSS BaseSeverity
+		sev := extractSeverity(v.Severity)
+		if sev == "" && v.CVSSv3 != nil && v.CVSSv3.BaseSeverity != "" {
+			sev = models.Severity(strings.ToLower(v.CVSSv3.BaseSeverity))
+		}
+		if sev == "" && v.CVSSv2 != nil && v.CVSSv2.Score > 0 {
+			// Derive severity from CVSS v2 score
+			sev = deriveSeverityFromCVSSv2(v.CVSSv2.Score)
+		}
 		if sev == "" {
 			sev = models.Medium
+		}
+
+		// Extract CVSS score
+		var cvssScore float64
+		var cvssVector string
+		if v.CVSSv3 != nil && v.CVSSv3.Score > 0 {
+			cvssScore = v.CVSSv3.Score
+			cvssVector = v.CVSSv3.Vector
+		} else if v.CVSSv2 != nil && v.CVSSv2.Score > 0 {
+			cvssScore = v.CVSSv2.Score
 		}
 
 		var published, modified *time.Time
@@ -105,14 +143,20 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 			refs[i] = ref.URL
 		}
 
-		vulns = append(vulns, models.Vulnerability{
-			ID:         v.ID,
-			Summary:    v.Summary,
-			Severity:   sev,
-			References: refs,
+		vuln := models.Vulnerability{
+			ID:          v.ID,
+			Summary:     v.Summary,
+			Description: v.Details,
+			Severity:    sev,
+			CVSSScore:   cvssScore,
+			CVSSVector:  cvssVector,
+			References:  refs,
 			PublishedAt: published,
-			ModifiedAt: modified,
-		})
+			ModifiedAt:  modified,
+			Sources:     extractSourcesFromID(v.ID),
+		}
+
+		vulns = append(vulns, vuln)
 	}
 
 	return vulns, nil
@@ -141,6 +185,12 @@ func (c *Client) BatchQuery(pkgs []struct {
 // CalculateRiskScore computes a risk score based on severity and context.
 // Returns a value 0-100.
 func CalculateRiskScore(severity models.Severity, inProduction bool) int {
+	return CalculateRiskScoreWithDepth(severity, inProduction, 0)
+}
+
+// CalculateRiskScoreWithDepth computes risk score with supply chain depth modifier.
+// depth: 0 = direct, 1 = transitive (1 level), 2 = deeper, etc.
+func CalculateRiskScoreWithDepth(severity models.Severity, inProduction bool, depth int) int {
 	baseScore := map[models.Severity]int{
 		models.Critical: 90,
 		models.High:     70,
@@ -164,5 +214,118 @@ func CalculateRiskScore(severity models.Severity, inProduction bool) int {
 		score = (score * 60) / 100
 	}
 
+	// Supply chain modifier: reduce score for deeper transitive deps
+	// Direct (depth 0): no change
+	// Transitive (depth 1+): reduce by 10% per level
+	if depth > 0 {
+		reduction := 10 * depth
+		if reduction > 40 {
+			reduction = 40 // cap at 40% reduction
+		}
+		score = (score * (100 - reduction)) / 100
+	}
+
 	return score
+}
+
+// ScanGraphVulnerabilities scans all nodes in dependency graph against OSV API.
+func (c *Client) ScanGraphVulnerabilities(graph *models.DependencyGraph) error {
+	for _, node := range graph.Nodes {
+		vulns, err := c.Query(node.Name, node.Version)
+		if err != nil {
+			// Log but continue
+			continue
+		}
+
+		// Calculate risk scores with depth modifier
+		for i := range vulns {
+			vulns[i].RiskScore = CalculateRiskScoreWithDepth(
+				vulns[i].Severity,
+				node.Type == models.Production,
+				node.Depth,
+			)
+		}
+
+		// Store vulnerabilities in node
+		node.Vulnerabilities = vulns
+	}
+
+	return nil
+}
+
+// extractSeverity handles different severity formats from OSV API:
+// - string: "high"
+// - array: ["high"]
+// - object: {"cvssv3": {...}}
+func extractSeverity(sev interface{}) models.Severity {
+	if sev == nil {
+		return ""
+	}
+
+	switch v := sev.(type) {
+	case string:
+		// Direct string value
+		return models.Severity(v)
+	case []interface{}:
+		// Array - take first element
+		if len(v) > 0 {
+			if str, ok := v[0].(string); ok {
+				return models.Severity(str)
+			}
+		}
+	case map[string]interface{}:
+		// Object - try to extract from common fields
+		if cvss, ok := v["cvssv3"]; ok {
+			if cvssObj, ok := cvss.(map[string]interface{}); ok {
+				if severity, ok := cvssObj["severity"].(string); ok {
+					return models.Severity(severity)
+				}
+			}
+		}
+		if cvss, ok := v["cvssv2"]; ok {
+			if cvssObj, ok := cvss.(map[string]interface{}); ok {
+				if severity, ok := cvssObj["severity"].(string); ok {
+					return models.Severity(severity)
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// deriveSeverityFromCVSSv2 derives severity level from CVSS v2 score.
+// CVSS v2 uses 0-10 scale:
+// 0-3.9: Low
+// 4.0-6.9: Medium
+// 7.0-10.0: High/Critical
+func deriveSeverityFromCVSSv2(score float64) models.Severity {
+	switch {
+	case score >= 9.0:
+		return models.Critical
+	case score >= 7.0:
+		return models.High
+	case score >= 4.0:
+		return models.Medium
+	default:
+		return models.Low
+	}
+}
+
+// extractSourcesFromID extracts vulnerability sources based on ID format.
+// CVE IDs start with "CVE-"
+// GHSA IDs start with "GHSA-" and are GitHub Security Advisories
+// Returns a list of detected sources
+func extractSourcesFromID(id string) []string {
+	sources := []string{"osv"} // OSV is always the aggregator
+
+	if strings.HasPrefix(id, "CVE-") {
+		// CVE identifiers come from NVD/MITRE
+		sources = append(sources, "nvd", "mitre")
+	} else if strings.HasPrefix(id, "GHSA-") {
+		// GHSA identifiers are from GitHub
+		sources = append(sources, "github")
+	}
+
+	return sources
 }
