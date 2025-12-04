@@ -2,11 +2,15 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -27,12 +31,16 @@ type ScanProgress struct {
 
 // VulnEntry represents a vulnerability for display in the TUI
 type VulnEntry struct {
-	Package      string
-	CVE          string
-	Severity     string
-	CVSS         float64
-	Description  string
-	DependencyOf string // Direct parent in dependency tree
+	Package        string
+	CVE            string   // Primary ID (CVE-* or GHSA-*)
+	CVEID          string   // CVE-YYYY-*** from MITRE if available
+	Severity       string
+	CVSS           float64
+	Description    string
+	CVETitle       string   // Title from MITRE/NVD
+	CVEDescription string   // Description from MITRE/NVD
+	PublishedAt    string   // Published date formatted
+	DependencyPath []string // Full path from root to vulnerable package
 }
 
 // Model represents the TUI state
@@ -42,6 +50,11 @@ type Model struct {
 	result       *ScanResult  // Final scan result to display
 	vulns        []VulnEntry  // Dynamic list of found vulnerabilities
 	spinner      spinner.Model
+	progressBar  progress.Model
+	vulnTable    table.Model
+	viewport     viewport.Model
+	width        int
+	height       int
 	mu           sync.Mutex
 }
 
@@ -55,7 +68,7 @@ type ScanResult struct {
 }
 
 // Init initializes the model
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return ticker()
 }
 
@@ -67,23 +80,44 @@ func ticker() tea.Cmd {
 }
 
 // Update handles messages
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "q" || msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		// Handle table/viewport navigation if needed
+		if m.vulnTable.Focused() {
+			var cmd tea.Cmd
+			m.vulnTable, cmd = m.vulnTable.Update(msg)
+			return m, cmd
+		}
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.viewport.Width = msg.Width
+		m.viewport.Height = msg.Height - 10 // Reserve space for header/progress
+		m.updateTable()
+		return m, nil
 	case ProgressMsg:
 		m.mu.Lock()
 		m.progress = msg.Progress
 		m.mu.Unlock()
-		// Keep the ticker running
+		m.updateTable()
+		// Update progress bar
+		if m.progress.Total > 0 {
+			percent := float64(m.progress.Current) / float64(m.progress.Total)
+			if percent > 1.0 {
+				percent = 1.0
+			}
+			m.progressBar.SetPercent(percent)
+		}
 		return m, ticker()
 	case VulnMsg:
 		m.mu.Lock()
 		m.vulns = append(m.vulns, msg.Entry)
 		m.mu.Unlock()
-		// Keep the ticker running
+		m.updateTable()
 		return m, ticker()
 	case DoneMsg:
 		m.mu.Lock()
@@ -107,7 +141,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the UI
-func (m Model) View() string {
+func (m *Model) View() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -122,191 +156,314 @@ func (m Model) View() string {
 	return m.renderScanning()
 }
 
-func (m Model) renderScanning() string {
-	var s string
+func (m *Model) renderScanning() string {
+	var sections []string
 
 	// Header with spinner
-	s += m.spinner.View() + " " + lipgloss.NewStyle().
+	header := m.spinner.View() + " " + lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("33")).
-		Render("Vigil Scanning...\n")
+		Render("Vigil Scanning...")
+	sections = append(sections, header)
 
-	// Progress bar with animated characters
-	width := 40
-	filled := 0
+	// Progress bar (custom manual bar to ensure visibility)
 	if m.progress.Total > 0 {
-		filled = (m.progress.Current * width) / m.progress.Total
-	}
-
-	bar := "["
-	for i := 0; i < width; i++ {
-		if i < filled {
-			bar += "▓"
-		} else if i == filled {
-			bar += "▒"
-		} else {
-			bar += "░"
+		percent := float64(m.progress.Current) / float64(m.progress.Total)
+		if percent > 1.0 {
+			percent = 1.0
 		}
+		width := 40
+		filled := int(percent * float64(width))
+		if filled > width {
+			filled = width
+		}
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+		bar = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(bar)
+		progressView := fmt.Sprintf("%s %d%% (%d/%d)", bar, int(percent*100), m.progress.Current, m.progress.Total)
+		sections = append(sections, progressView)
 	}
-	bar += "]"
-
-	percentage := 0
-	if m.progress.Total > 0 {
-		percentage = (m.progress.Current * 100) / m.progress.Total
-	}
-
-	s += bar + fmt.Sprintf(" %d%% (%d/%d)\n", percentage, m.progress.Current, m.progress.Total)
 
 	// Current package
 	if m.progress.CurrentPkg != "" {
-		s += fmt.Sprintf("Scanning: %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(m.progress.CurrentPkg))
+		pkgLine := fmt.Sprintf("Scanning: %s",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(m.progress.CurrentPkg))
+		sections = append(sections, pkgLine)
 	}
 
 	// Elapsed time
 	elapsed := time.Since(m.startTime).Seconds()
-	s += fmt.Sprintf("⏱  Elapsed: %.0fs\n", elapsed)
+	sections = append(sections, fmt.Sprintf("⏱  Elapsed: %.0fs", elapsed))
 
 	// Vulnerabilities found counter
 	if m.progress.CurrentVulns > 0 {
-		s += fmt.Sprintf("🚨 Vulnerabilities found: %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(fmt.Sprint(m.progress.CurrentVulns)))
+		vulnCount := fmt.Sprintf("🚨 Vulnerabilities found: %s",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(fmt.Sprint(m.progress.CurrentVulns)))
+		sections = append(sections, vulnCount)
 	}
 
 	// Dynamic vulnerability table
 	if len(m.vulns) > 0 {
-		s += lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33")).Render("📋 Vulnerabilities Found:\n")
-		s += renderVulnTable(m.vulns)
+		sections = append(sections, "")
+		sections = append(sections, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33")).Render("📋 Vulnerabilities Found:"))
+		sections = append(sections, m.vulnTable.View())
 	}
 
-	s += "\nPress q to quit"
+	sections = append(sections, "")
+	sections = append(sections, "Press q to quit")
 
-	return s
+	return strings.Join(sections, "\n")
 }
 
-// renderVulnTable renders a formatted table of vulnerabilities
-func renderVulnTable(vulns []VulnEntry) string {
-	var s string
+// updateTable rebuilds the table with current vulnerabilities
+func (m *Model) updateTable() {
+	if len(m.vulns) == 0 {
+		return
+	}
 
-	// Header with columns
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("255")).
-		Background(lipgloss.Color("8")).
-		Padding(0, 1)
+	// Calculate available width (reserve some space for margins)
+	availableWidth := m.width - 4
+	if availableWidth < 80 {
+		availableWidth = 80
+	}
 
-	s += headerStyle.Render(fmt.Sprintf("%-12s %-20s %-15s %-8s %s\n",
-		"Severity",
-		"Package",
-		"CVE ID",
-		"CVSS",
-		"Parent",
-	))
-
-	s += "─────────────────────────────────────────────────────────────────────────────────────────\n"
-
-	// Show last 10 vulnerabilities
-	start := len(vulns) - 10
+	// Build table rows
+	var rows []table.Row
+	// Show last 20 vulnerabilities
+	start := len(m.vulns) - 20
 	if start < 0 {
 		start = 0
 	}
 
-	for i := start; i < len(vulns); i++ {
-		v := vulns[i]
-		severityColor := getSeverityColor(v.Severity)
-		severityStyled := lipgloss.NewStyle().Foreground(severityColor).Bold(true).Render(padRight(v.Severity, 12))
+	for i := start; i < len(m.vulns); i++ {
+		v := m.vulns[i]
+		
+		// Format dependency path
+		pathStr := ""
+		if len(v.DependencyPath) > 0 {
+			// Show path: root -> dep1 -> dep2 -> vulnerable
+			pathParts := make([]string, len(v.DependencyPath))
+			for j, p := range v.DependencyPath {
+				// Truncate long package names
+				if len(p) > 15 {
+					pathParts[j] = p[:12] + "..."
+				} else {
+					pathParts[j] = p
+				}
+			}
+			pathStr = strings.Join(pathParts, " → ")
+		}
 
-		cvssStr := ""
+		// Format CVE ID
+		cveDisplay := v.CVE
+		if v.CVEID != "" {
+			cveDisplay = v.CVEID
+		}
+
+		// Format CVSS
+		cvssStr := "-"
 		if v.CVSS > 0 {
 			cvssStr = fmt.Sprintf("%.1f", v.CVSS)
 		}
 
-		parentDisplay := v.DependencyOf
-		if len(parentDisplay) > 15 {
-			parentDisplay = parentDisplay[:12] + "…"
-		}
-
+		// Format package name
 		pkgDisplay := v.Package
-		if len(pkgDisplay) > 20 {
-			pkgDisplay = pkgDisplay[:17] + "…"
+
+		// Format severity - use readable text (plain text for table compatibility)
+		severityText := strings.ToLower(strings.TrimSpace(v.Severity))
+		if severityText == "" {
+			severityText = "unknown"
+		}
+		// Capitalize first letter properly
+		if len(severityText) > 0 {
+			severityText = strings.ToUpper(severityText[:1]) + severityText[1:]
 		}
 
-		cveDisplay := v.CVE
-		if len(cveDisplay) > 15 {
-			cveDisplay = cveDisplay[:12] + "…"
+		// Format title - use Description or CVETitle (short description), fallback to CVE ID
+		titleDisplay := ""
+		if v.Description != "" {
+			// Use Description as title (it's usually a short sentence)
+			titleDisplay = v.Description
+		} else if v.CVETitle != "" {
+			titleDisplay = v.CVETitle
+		}
+		
+		// Truncate if too long
+		if len(titleDisplay) > 60 {
+			// Try to truncate at sentence end
+			truncated := titleDisplay[:60]
+			if lastDot := strings.LastIndex(truncated, "."); lastDot > 40 {
+				titleDisplay = truncated[:lastDot+1]
+			} else {
+				titleDisplay = truncated[:57] + "..."
+			}
+		}
+		
+		// Fallback to CVE ID if no title available
+		if titleDisplay == "" {
+			if v.CVEID != "" {
+				titleDisplay = v.CVEID
+			} else {
+				titleDisplay = v.CVE
+			}
 		}
 
-		s += fmt.Sprintf("%s %-20s %-15s %-8s %s\n",
-			severityStyled,
-			padRight(pkgDisplay, 20),
-			padRight(cveDisplay, 15),
-			padRight(cvssStr, 8),
-			parentDisplay,
-		)
+		// Format published date
+		dateStr := "-"
+		if v.PublishedAt != "" {
+			dateStr = v.PublishedAt
+		}
+
+		rows = append(rows, table.Row{
+			severityText,
+			pkgDisplay,
+			cveDisplay,
+			cvssStr,
+			titleDisplay,
+			dateStr,
+			pathStr,
+		})
 	}
 
-	s += "─────────────────────────────────────────────────────────────────────────────────────────\n"
+	// Calculate column widths dynamically based on available space
+	severityWidth := 10
+	cveWidth := 18
+	cvssWidth := 6
+	dateWidth := 12
+	titleWidth := 35
+	pkgWidth := min(25, (availableWidth-severityWidth-cveWidth-cvssWidth-dateWidth-titleWidth-40)/2)
+	pathWidth := availableWidth - severityWidth - pkgWidth - cveWidth - cvssWidth - dateWidth - titleWidth - 4
 
-	return s
+	// Define columns
+	columns := []table.Column{
+		{Title: "Severity", Width: severityWidth},
+		{Title: "Package", Width: pkgWidth},
+		{Title: "CVE ID", Width: cveWidth},
+		{Title: "CVSS", Width: cvssWidth},
+		{Title: "Title", Width: max(titleWidth, 20)},
+		{Title: "Published", Width: dateWidth},
+		{Title: "Dependency Path", Width: max(pathWidth, 15)},
+	}
+
+	// Create table
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows(rows),
+		table.WithFocused(false),
+		table.WithHeight(min(len(rows)+1, 15)),
+	)
+	// Do not select any row to avoid highlight bar
+	t.SetCursor(-1)
+
+	// Style table
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(true)
+	// Remove selected-row styling to avoid highlight bar
+	s.Selected = lipgloss.NewStyle()
+	t.SetStyles(s)
+
+	m.vulnTable = t
 }
 
-// padRight pads a string to the right with spaces
-func padRight(s string, length int) string {
-	if len(s) >= length {
-		return s[:length]
+// max returns the maximum of two integers
+func max(a, b int) int {
+	if a > b {
+		return a
 	}
-	return s + fmt.Sprintf("%*s", length-len(s), "")
+	return b
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // getSeverityColor returns color for severity level
 func getSeverityColor(severity string) lipgloss.Color {
-	switch severity {
+	severityLower := strings.ToLower(severity)
+	switch severityLower {
 	case "critical":
-		return lipgloss.Color("196") // red
+		return lipgloss.Color("196") // bright red
 	case "high":
 		return lipgloss.Color("208") // orange
 	case "medium":
 		return lipgloss.Color("226") // yellow
-	default:
+	case "low":
 		return lipgloss.Color("33") // blue
+	case "unknown":
+		return lipgloss.Color("240") // grey for unknown
+	default:
+		// Try to match partial strings
+		if strings.Contains(severityLower, "critical") {
+			return lipgloss.Color("196")
+		}
+		if strings.Contains(severityLower, "high") {
+			return lipgloss.Color("208")
+		}
+		if strings.Contains(severityLower, "medium") {
+			return lipgloss.Color("226")
+		}
+		if strings.Contains(severityLower, "low") {
+			return lipgloss.Color("33")
+		}
+		return lipgloss.Color("240") // grey for unknown/unrecognized
 	}
 }
 
-func (m Model) renderCompleted() string {
-	var s string
+func (m *Model) renderCompleted() string {
+	var sections []string
 
 	elapsed := time.Since(m.startTime).Seconds()
-	s += lipgloss.NewStyle().
+	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("42")).
-		Render(fmt.Sprintf("✓ Scan complete! (%.0fs)\n", elapsed))
+		Render(fmt.Sprintf("✓ Scan complete! (%.0fs)", elapsed))
+	sections = append(sections, header)
 
 	if m.result != nil {
 		if m.result.TotalVulns == 0 {
-			s += lipgloss.NewStyle().
+			sections = append(sections, lipgloss.NewStyle().
 				Foreground(lipgloss.Color("42")).
-				Render("✓ No vulnerabilities found\n")
+				Render("✓ No vulnerabilities found"))
 		} else {
-			s += "Vulnerabilities found:\n"
+			sections = append(sections, "")
+			sections = append(sections, "Vulnerabilities found:")
 			if m.result.CriticalVulns > 0 {
-				s += fmt.Sprintf("  🔴 Critical:  %d\n", m.result.CriticalVulns)
+				sections = append(sections, fmt.Sprintf("  🔴 Critical:  %d", m.result.CriticalVulns))
 			}
 			if m.result.HighVulns > 0 {
-				s += fmt.Sprintf("  🟠 High:      %d\n", m.result.HighVulns)
+				sections = append(sections, fmt.Sprintf("  🟠 High:      %d", m.result.HighVulns))
 			}
 			if m.result.MediumVulns > 0 {
-				s += fmt.Sprintf("  🟡 Medium:    %d\n", m.result.MediumVulns)
+				sections = append(sections, fmt.Sprintf("  🟡 Medium:    %d", m.result.MediumVulns))
 			}
 			if m.result.LowVulns > 0 {
-				s += fmt.Sprintf("  🔵 Low:       %d\n", m.result.LowVulns)
+				sections = append(sections, fmt.Sprintf("  🔵 Low:       %d", m.result.LowVulns))
 			}
-			s += fmt.Sprintf("  Total: %d vulnerabilities\n", m.result.TotalVulns)
+			sections = append(sections, fmt.Sprintf("  Total: %d vulnerabilities", m.result.TotalVulns))
 		}
 	}
 
-	s += "Press q to exit"
-	return s
+	// Show vulnerability table if there are any
+	if len(m.vulns) > 0 {
+		sections = append(sections, "")
+		sections = append(sections, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33")).Render("📋 Vulnerabilities Found:"))
+		sections = append(sections, m.vulnTable.View())
+	}
+
+	sections = append(sections, "")
+	sections = append(sections, "Press q to exit")
+
+	return strings.Join(sections, "\n")
 }
 
-func (m Model) renderError() string {
+func (m *Model) renderError() string {
 	return lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("196")).
@@ -331,14 +488,64 @@ type ErrorMsg struct {
 }
 
 // NewModel creates a new model
-func NewModel() Model {
+func NewModel() *Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
 
-	return Model{
-		startTime: time.Now(),
-		progress:  ScanProgress{},
-		spinner:   s,
+	// Initialize progress bar with solid color for better visibility
+	p := progress.New(
+		progress.WithWidth(40),
+		progress.WithSolidFill("#FF6B6B"), // Red color for filled portion
+	)
+	p.Width = 40
+	p.ShowPercentage = false // Don't show percentage in the bar itself, we'll add it manually
+	p.Full = '█'
+	p.Empty = '░'
+
+	// Initialize empty table
+	columns := []table.Column{
+		{Title: "Severity", Width: 10},
+		{Title: "Package", Width: 25},
+		{Title: "CVE ID", Width: 18},
+		{Title: "CVSS", Width: 6},
+		{Title: "Title", Width: 35},
+		{Title: "Published", Width: 12},
+		{Title: "Dependency Path", Width: 50},
+	}
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows([]table.Row{}),
+		table.WithFocused(false),
+		table.WithHeight(5),
+	)
+
+	// Style table
+	tableStyles := table.DefaultStyles()
+	tableStyles.Header = tableStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(true)
+	// Disable row highlight (purple bar) to keep table clean
+	tableStyles.Selected = tableStyles.Selected.
+		Foreground(lipgloss.Color("")). // no override
+		Background(lipgloss.Color("")). // transparent
+		Bold(false)
+	t.SetStyles(tableStyles)
+
+	// Initialize viewport
+	vp := viewport.New(80, 20)
+
+	return &Model{
+		startTime:   time.Now(),
+		progress:    ScanProgress{},
+		spinner:     s,
+		progressBar: p,
+		vulnTable:   t,
+		viewport:    vp,
+		width:       80,
+		height:      24,
 	}
 }
+
