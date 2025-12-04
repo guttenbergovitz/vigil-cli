@@ -42,6 +42,7 @@ type QueryResponse struct {
 	Vulns []struct {
 		ID        string        `json:"id"`
 		Summary   string        `json:"summary"`
+		Details   string        `json:"details"`
 		Severity  interface{}   `json:"severity"` // Can be string, array, or object
 		Published string        `json:"published"`
 		Modified  string        `json:"modified"`
@@ -49,6 +50,17 @@ type QueryResponse struct {
 			Type string `json:"type"`
 			URL  string `json:"url"`
 		} `json:"references"`
+		DatabaseSpecific interface{} `json:"database_specific"` // Contains CVSS info
+		// For NVD/CVE data
+		CVSSv3 *struct {
+			Score      float64 `json:"score"`
+			Vector     string  `json:"vectorString"`
+			BaseScore  float64 `json:"baseScore"`
+			BaseSeverity string `json:"baseSeverity"`
+		} `json:"cvssv3"`
+		CVSSv2 *struct {
+			Score float64 `json:"score"`
+		} `json:"cvssv2"`
 	} `json:"vulns"`
 }
 
@@ -97,6 +109,14 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 			sev = models.Medium
 		}
 
+		// Extract CVSS score
+		var cvssScore float64
+		if v.CVSSv3 != nil && v.CVSSv3.Score > 0 {
+			cvssScore = v.CVSSv3.Score
+		} else if v.CVSSv2 != nil && v.CVSSv2.Score > 0 {
+			cvssScore = v.CVSSv2.Score
+		}
+
 		var published, modified *time.Time
 		if v.Published != "" {
 			if t, err := time.Parse(time.RFC3339, v.Published); err == nil {
@@ -114,14 +134,19 @@ func (c *Client) Query(pkg, version string) ([]models.Vulnerability, error) {
 			refs[i] = ref.URL
 		}
 
-		vulns = append(vulns, models.Vulnerability{
-			ID:         v.ID,
-			Summary:    v.Summary,
-			Severity:   sev,
-			References: refs,
+		vuln := models.Vulnerability{
+			ID:          v.ID,
+			Summary:     v.Summary,
+			Description: v.Details,
+			Severity:    sev,
+			CVSSScore:   cvssScore,
+			References:  refs,
 			PublishedAt: published,
-			ModifiedAt: modified,
-		})
+			ModifiedAt:  modified,
+			Sources:     []string{"osv"},
+		}
+
+		vulns = append(vulns, vuln)
 	}
 
 	return vulns, nil

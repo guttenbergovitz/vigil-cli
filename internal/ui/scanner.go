@@ -19,12 +19,21 @@ type ScanProgress struct {
 	Error        string
 }
 
+// VulnEntry represents a vulnerability for display in the TUI
+type VulnEntry struct {
+	Package  string
+	CVE      string
+	Severity string
+	CVSS     float64
+}
+
 // Model represents the TUI state
 type Model struct {
-	progress  ScanProgress
-	startTime time.Time
-	result    *ScanResult // Final scan result to display
-	mu        sync.Mutex
+	progress     ScanProgress
+	startTime    time.Time
+	result       *ScanResult  // Final scan result to display
+	vulns        []VulnEntry  // Dynamic list of found vulnerabilities
+	mu           sync.Mutex
 }
 
 // ScanResult holds the completed scan results for display
@@ -51,6 +60,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ProgressMsg:
 		m.mu.Lock()
 		m.progress = msg.Progress
+		m.mu.Unlock()
+	case VulnMsg:
+		m.mu.Lock()
+		m.vulns = append(m.vulns, msg.Entry)
 		m.mu.Unlock()
 	case DoneMsg:
 		m.mu.Lock()
@@ -92,7 +105,7 @@ func (m Model) renderScanning() string {
 		Foreground(lipgloss.Color("33")).
 		Render("🔍 Vigil Scanning...\n\n")
 
-	// Progress bar
+	// Progress bar with animated characters
 	width := 40
 	filled := 0
 	if m.progress.Total > 0 {
@@ -102,32 +115,81 @@ func (m Model) renderScanning() string {
 	bar := "["
 	for i := 0; i < width; i++ {
 		if i < filled {
-			bar += "="
+			bar += "▓"
+		} else if i == filled {
+			bar += "▒"
 		} else {
-			bar += " "
+			bar += "░"
 		}
 	}
 	bar += "]"
 
-	s += bar + fmt.Sprintf(" %d/%d\n\n", m.progress.Current, m.progress.Total)
+	percentage := 0
+	if m.progress.Total > 0 {
+		percentage = (m.progress.Current * 100) / m.progress.Total
+	}
+
+	s += bar + fmt.Sprintf(" %d%% (%d/%d)\n\n", percentage, m.progress.Current, m.progress.Total)
 
 	// Current package
 	if m.progress.CurrentPkg != "" {
-		s += fmt.Sprintf("Current: %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(m.progress.CurrentPkg))
+		s += fmt.Sprintf("Scanning: %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(m.progress.CurrentPkg))
 	}
 
 	// Elapsed time
 	elapsed := time.Since(m.startTime).Seconds()
-	s += fmt.Sprintf("Elapsed: %.0fs\n", elapsed)
+	s += fmt.Sprintf("⏱  Elapsed: %.0fs\n", elapsed)
 
-	// Vulnerabilities found
+	// Vulnerabilities found counter
 	if m.progress.CurrentVulns > 0 {
-		s += fmt.Sprintf("Vulns found: %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(fmt.Sprint(m.progress.CurrentVulns)))
+		s += fmt.Sprintf("🚨 Vulnerabilities found: %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(fmt.Sprint(m.progress.CurrentVulns)))
+	}
+
+	// Dynamic vulnerability table
+	if len(m.vulns) > 0 {
+		s += "\n" + lipgloss.NewStyle().Bold(true).Render("Recent Vulnerabilities:\n")
+		s += "─────────────────────────────────────────────────────────────────\n"
+
+		// Show last 5 vulnerabilities
+		start := len(m.vulns) - 5
+		if start < 0 {
+			start = 0
+		}
+
+		for i := start; i < len(m.vulns); i++ {
+			v := m.vulns[i]
+			severityColor := getSeverityColor(v.Severity)
+			cvssDisplay := ""
+			if v.CVSS > 0 {
+				cvssDisplay = fmt.Sprintf(" [CVSS:%.1f]", v.CVSS)
+			}
+			s += fmt.Sprintf("%s  %s  %s%s\n",
+				lipgloss.NewStyle().Foreground(severityColor).Render(v.Severity),
+				v.Package,
+				v.CVE,
+				cvssDisplay,
+			)
+		}
+		s += "─────────────────────────────────────────────────────────────────\n"
 	}
 
 	s += "\nPress q to quit"
 
 	return s
+}
+
+// getSeverityColor returns color for severity level
+func getSeverityColor(severity string) lipgloss.Color {
+	switch severity {
+	case "critical":
+		return lipgloss.Color("196") // red
+	case "high":
+		return lipgloss.Color("208") // orange
+	case "medium":
+		return lipgloss.Color("226") // yellow
+	default:
+		return lipgloss.Color("33") // blue
+	}
 }
 
 func (m Model) renderCompleted() string {
@@ -176,6 +238,10 @@ func (m Model) renderError() string {
 // Message types
 type ProgressMsg struct {
 	Progress ScanProgress
+}
+
+type VulnMsg struct {
+	Entry VulnEntry
 }
 
 type DoneMsg struct {

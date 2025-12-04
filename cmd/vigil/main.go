@@ -188,6 +188,16 @@ func performScan(absPath, lockFile string, lockType scanner.LockFileType, lockHa
 				node.Type == models.Production,
 				node.Depth,
 			)
+
+			// Send vulnerability to TUI for dynamic display
+			program.Send(ui.VulnMsg{
+				Entry: ui.VulnEntry{
+					Package:  node.Name + "@" + node.Version,
+					CVE:      vulns[j].ID,
+					Severity: string(vulns[j].Severity),
+					CVSS:     vulns[j].CVSSScore,
+				},
+			})
 		}
 
 		node.Vulnerabilities = vulns
@@ -424,6 +434,9 @@ func reportText(result *models.ScanResult, out *os.File) error {
 					}
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
 					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.CVSSScore > 0 {
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0\n", vuln.CVSSScore)
+					}
 					fmt.Fprintf(out, "│   └── %s\n", vuln.Summary)
 					if vuln.RiskScore > 0 {
 						fmt.Fprintf(out, "│       Risk Score: %d/100\n", vuln.RiskScore)
@@ -445,6 +458,9 @@ func reportText(result *models.ScanResult, out *os.File) error {
 					}
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
 					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.CVSSScore > 0 {
+						fmt.Fprintf(out, "│   ├── CVSS: %.1f/10.0\n", vuln.CVSSScore)
+					}
 					if vuln.RiskScore > 0 {
 						fmt.Fprintf(out, "│   └── Risk Score: %d/100\n", vuln.RiskScore)
 					}
@@ -464,7 +480,10 @@ func reportText(result *models.ScanResult, out *os.File) error {
 						depType = "dev"
 					}
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
-					fmt.Fprintf(out, "│   └── CVE: %s\n", vuln.ID)
+					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.CVSSScore > 0 {
+						fmt.Fprintf(out, "│   └── CVSS: %.1f/10.0\n", vuln.CVSSScore)
+					}
 				}
 			}
 		}
@@ -481,7 +500,10 @@ func reportText(result *models.ScanResult, out *os.File) error {
 						depType = "dev"
 					}
 					fmt.Fprintf(out, "├── %s@%s (%s)\n", dep.Name, dep.Version, depType)
-					fmt.Fprintf(out, "│   └── CVE: %s\n", vuln.ID)
+					fmt.Fprintf(out, "│   ├── CVE: %s\n", vuln.ID)
+					if vuln.CVSSScore > 0 {
+						fmt.Fprintf(out, "│   └── CVSS: %.1f/10.0\n", vuln.CVSSScore)
+					}
 				}
 			}
 		}
