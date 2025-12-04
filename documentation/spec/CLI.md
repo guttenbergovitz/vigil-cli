@@ -22,9 +22,13 @@ Scans a project directory and analyzes dependencies.
 1. Locate `package.json` and lock file (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`)
 2. Parse lock file into transitive dependency tree
 3. Tag each dependency: `production` or `development`
-4. For production dependencies, query OSV API
-5. Calculate risk score per CVE
-6. Output results
+4. For each dependency, query OSV API for vulnerabilities
+5. For each vulnerability, enrich CVSS score from NVD/GitHub/OSV sources
+6. Extract CVE IDs from references and query NVD API for detailed data
+7. Query GitHub Security Advisories for GHSA-* IDs
+8. Calculate risk score per CVE
+9. Display results in interactive TUI with real-time progress
+10. Save results to `.vigil.cache`
 
 **Exit codes:**
 - `0`: Scan completed, no high-risk issues
@@ -89,9 +93,11 @@ project
 - **Production**: Included in final bundle/runtime. Queries OSV API.
 - **Development**: Not included in runtime. Scanned but not alerting by default.
 
-## OSV API Integration
+## Vulnerability Data Sources
 
-Query https://api.osv.dev/v1/query for each unique package+version.
+### OSV API Integration
+
+Primary source for vulnerability discovery. Query https://api.osv.dev/v1/query for each unique package+version.
 
 **Request format:**
 ```json
@@ -103,11 +109,47 @@ Query https://api.osv.dev/v1/query for each unique package+version.
 ```
 
 **Response fields used:**
-- `vulns[].id`: CVE ID
+- `vulns[].id`: CVE ID or GHSA ID
 - `vulns[].summary`: Brief description
-- `vulns[].severity`: CVSS severity
+- `vulns[].severity`: Severity level
+- `vulns[].cvssv3`: CVSS v3 score and vector
+- `vulns[].cvssv2`: CVSS v2 score
+- `vulns[].database_specific`: Additional CVSS data
 - `vulns[].affected[].versions`: Affected versions
-- `vulns[].references`: URLs
+- `vulns[].references`: URLs (used to extract CVE IDs)
+
+### NVD API Integration
+
+For CVE-* IDs, Vigil queries NVD API v2.0 to enrich data:
+- CVSS v3.1/v3.0/v2 scores
+- Authoritative severity levels
+- Detailed descriptions and titles
+- Publication dates
+
+**Environment variable:** `NVD_API_KEY` (optional but recommended)
+
+**Endpoint:** `https://services.nvd.nist.gov/rest/json/cves/2.0`
+
+### GitHub Security Advisories
+
+For GHSA-* IDs, Vigil queries GitHub Security Advisories API:
+- CVSS scores and vectors
+- Detailed descriptions
+- CVE ID mapping
+
+**Environment variable:** `GITHUB_TOKEN` (optional, improves rate limits)
+
+**Endpoints:**
+- GraphQL: `https://api.github.com/graphql` (with token)
+- REST: `https://api.github.com/advisories/{ghsa_id}` (public)
+
+### CVSS Score Priority
+
+CVSS scores are enriched from multiple sources in priority order:
+1. NVD API (for CVE-*)
+2. GitHub Security Advisories (for GHSA-*)
+3. OSV API (cvssv3, cvssv2, database_specific)
+4. Derived from severity level (fallback)
 
 ## Risk Scoring
 
@@ -195,8 +237,13 @@ Formatted for documentation/reports:
 ### CVE-2024-1234
 - **Package**: express@4.18.0
 - **Severity**: Medium
+- **CVSS Score**: 7.5/10.0 (CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H)
+- **CVE ID**: CVE-2024-1234
+- **Title**: XSS vulnerability in template handling
+- **Description**: Full description from NVD
 - **Risk Score**: 45
-- **Summary**: XSS vulnerability in template handling
+- **Published**: 2024-01-15
+- **Dependency Path**: express@4.18.0 → body-parser@1.20.0
 ```
 
 ## Error Handling

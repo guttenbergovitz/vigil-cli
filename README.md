@@ -1,6 +1,6 @@
 # Vigil CLI
 
-Lightweight vulnerability scanner for JavaScript/TypeScript projects. Analyzes dependency trees and reports CVE exposure with context.
+Lightweight vulnerability scanner for JavaScript/TypeScript projects. Analyzes dependency trees and reports CVE exposure with context, enriched CVSS scores, and detailed vulnerability information.
 
 ## Quick Start
 
@@ -9,6 +9,18 @@ vigil scan <path>
 vigil report
 ```
 
+## Features
+
+- **Multi-source CVSS enrichment**: Automatically fetches CVSS scores from NVD, GitHub Security Advisories, and OSV
+- **Interactive TUI**: Real-time scanning progress with live vulnerability table
+- **Comprehensive CVE data**: Includes titles, descriptions, publication dates, and dependency paths
+- **Multiple export formats**: Text, CSV, and Markdown reports
+
+## Environment Variables
+
+- `NVD_API_KEY` (optional): NVD API key for enhanced CVE data and CVSS scores. Get one at https://nvd.nist.gov/developers/request-an-api-key
+- `GITHUB_TOKEN` (optional): GitHub token for GitHub Security Advisories API access (improves rate limits)
+
 ## Structure
 
 ```
@@ -16,8 +28,10 @@ vigil report
 ├── cmd/               # CLI entry points
 ├── internal/          # Private application code
 │   ├── scanner/       # Dependency tree analysis
-│   ├── report/        # Report generation
-│   └── osv/           # OSV API integration
+│   ├── ui/            # Terminal UI (TUI) components
+│   ├── osv/           # OSV API integration
+│   ├── nvd/           # NVD API integration
+│   └── github/        # GitHub Security Advisories integration
 ├── pkg/               # Public libraries
 │   ├── config/        # Configuration handling
 │   ├── models/        # Data structures
@@ -40,3 +54,14 @@ go build -o vigil ./cmd/vigil
 
 - Go 1.25+
 - No external binary dependencies
+
+## CVSS Score Sources
+
+Vigil enriches CVSS scores from multiple sources in priority order:
+
+1. **NVD API** (for CVE-* IDs): Most authoritative source for CVEs
+2. **GitHub Security Advisories** (for GHSA-* IDs): Comprehensive data for GitHub advisories
+3. **OSV API**: Includes CVSS from cvssv3, cvssv2, and database_specific fields
+4. **Derived from severity**: Fallback calculation if no CVSS available
+
+This ensures every vulnerability has a CVSS score for accurate risk assessment.
