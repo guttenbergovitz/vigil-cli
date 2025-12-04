@@ -111,7 +111,7 @@ func (m Model) renderScanning() string {
 
 	// Vulnerabilities found
 	if m.progress.CurrentVulns > 0 {
-		s += fmt.Sprintf("Vulns found: %d\n", lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(fmt.Sprint(m.progress.CurrentVulns)))
+		s += fmt.Sprintf("Vulns found: %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(fmt.Sprint(m.progress.CurrentVulns)))
 	}
 
 	s += "\nPress q to quit"
