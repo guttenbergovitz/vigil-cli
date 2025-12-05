@@ -11,10 +11,9 @@ import (
 	"github.com/guttenbergovitz/vigil-cli/internal/report"
 )
 
-// Report executes the report command
 func Report(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
-	format := fs.String("format", "text", "Output format (text, security, csv, markdown, json)")
+	format := fs.String("format", "table", "Output format (table, text, security, csv, markdown, json)")
 	exportFile := fs.String("export", "", "Export to file")
 	filterLevel := fs.String("filter", "", "Filter by severity level (low, medium, high, critical)")
 
@@ -58,6 +57,8 @@ func Report(args []string) error {
 
 	// Generate report in requested format
 	switch *format {
+	case "table":
+		return report.Table(result, out)
 	case "text":
 		return report.Text(result, out)
 	case "security":
@@ -69,6 +70,6 @@ func Report(args []string) error {
 	case "json":
 		return export.JSON(result, out)
 	default:
-		return fmt.Errorf("unknown format: %s (available: text, security, csv, markdown, json)", *format)
+		return fmt.Errorf("unknown format: %s (available: table, text, security, csv, markdown, json)", *format)
 	}
 }

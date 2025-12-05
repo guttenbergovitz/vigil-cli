@@ -40,11 +40,39 @@ Scans a project directory and analyzes dependencies.
 Generate report from last scan. Requires `.vigil.cache` from previous scan.
 
 **Flags:**
-- `--format <format>`: Output format: `text`, `csv`, `markdown` (default: `text`)
+- `--format <format>`: Output format (default: `table`)
+  - `table`: Compact tabular format with exploit classification (Trivy-style)
+  - `text`: Tree-structured detailed view
+  - `security`: Production-ready AppSec report with executive summary, risk analysis, and release gate recommendations
+  - `csv`: CSV export
+  - `markdown`: Markdown export
+  - `json`: JSON export
 - `--export <file>`: Write to file (optional)
 - `--filter <level>`: Show only vulns at or above level: `low`, `medium`, `high`, `critical`
 
-**Output (text):**
+**Output (table - default):**
+```
+Library          │ Vuln ID           │ Severity │ Exploit Type  │ Exploitability │ Fix Available │ Recommended Action
+─────────────────┼───────────────────┼──────────┼───────────────┼────────────────┼───────────────┼────────────────────
+astro@5.13.3     │ CVE-2025-64764    │ HIGH     │ XSS/Injection │ yes            │ 5.14.0        │ Immediate hotfix
+ip@2.0.1         │ CVE-2024-29415    │ HIGH     │ SSRF          │ conditional    │ 2.0.2         │ Upgrade next release
+
+SUMMARY
+Total Findings: 18  │  🔴 CRITICAL: 0  │  🟠 HIGH: 2  │  🟡 MEDIUM: 9  │  🔵 LOW: 7
+
+✅ Release can proceed
+  • No CRITICAL or HIGH production vulnerabilities
+  • 7 LOW findings represent acceptable background risk
+```
+
+**Output (security format):**
+Full AppSec report including:
+1. Executive Risk Summary (total findings, production-exploitable count, release blockers)
+2. Detailed vulnerability entries grouped by severity
+3. Systemic risk indicators (repeated vulnerabilities, hot clusters, critical layer impacts)
+4. Release gate recommendation (✅/⚠️/❌) with technical justification
+
+**Output (text format):**
 ```
 Project: /path/to/project
 Scanned: 2025-12-04T10:30:00Z
