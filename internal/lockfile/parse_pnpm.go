@@ -207,16 +207,16 @@ func ParsePnpmLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 
 		// Add edges to children
 		for childName, childVersion := range pkg.Dependencies {
-			// childVersion might be a version or a reference
-			// In pnpm, it's often just the version, but sometimes it's a reference
-			// For simplicity, we assume it matches a node in the graph
-			// But we need to find WHICH node matches childName + childVersion
+			// Normalize child version to match how we parse package keys
+			// e.g., "1.0.0(peer@2.0.0)" -> "1.0.0", "1.0.0_peer@2.0.0" -> "1.0.0"
+			normalizedChild := "/" + childName + "@" + childVersion
+			childPkgName, childPkgVersion := extractNameVersion(normalizedChild)
 
-			// Simple matching: look for a node with this name and version
-			// This is imperfect because childVersion might be a range or alias
-			// But for pnpm lockfile, it's usually resolved version
+			if childPkgName == "" || childPkgVersion == "" {
+				continue
+			}
 
-			childKey := childName + "@" + childVersion
+			childKey := childPkgName + "@" + childPkgVersion
 			graph.AddEdge(parentKey, childKey)
 		}
 	}
