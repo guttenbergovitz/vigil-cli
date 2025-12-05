@@ -106,8 +106,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 	nodesToScan := 0
 	var nodesToScanList []*types.DependencyNode
 	for _, node := range graph.Nodes {
-		// Skip orphaned nodes (not reachable from root)
-		if node.Depth == -1 {
+		// Skip orphaned nodes (not reachable from root) ONLY for pnpm
+		// For npm/yarn, we don't have proper graph structure (all nodes are marked as root)
+		if lockType == lockfile.PnpmLock && node.Depth == -1 {
 			continue
 		}
 		if skipDevDeps && node.Type == types.Development {
@@ -240,7 +241,7 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 	}
 
 	// Build result
-	result := buildScanResultFromGraph(absPath, lockFile, lockHash, graph)
+	result := buildScanResultFromGraph(absPath, lockFile, lockHash, graph, lockType)
 
 	// Send completion with results
 	if reporter != nil {
@@ -256,13 +257,13 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 	return result, nil
 }
 
-func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *types.DependencyGraph) *types.ScanResult {
+func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *types.DependencyGraph, lockType lockfile.LockFileType) *types.ScanResult {
 	// Convert graph nodes to flat dependency list
 	deps := make([]types.Dependency, 0, len(graph.Nodes))
 
 	for _, node := range graph.Nodes {
-		// Skip orphaned nodes
-		if node.Depth == -1 {
+		// Skip orphaned nodes ONLY for pnpm (where we have reliable graph structure)
+		if lockType == lockfile.PnpmLock && node.Depth == -1 {
 			continue
 		}
 		dep := types.Dependency{
