@@ -14,7 +14,13 @@ vigil report
 - **Multi-source CVSS enrichment**: Automatically fetches CVSS scores from NVD, GitHub Security Advisories, and OSV
 - **Interactive TUI**: Real-time scanning progress with live vulnerability table
 - **Comprehensive CVE data**: Includes titles, descriptions, publication dates, and dependency paths
-- **Multiple export formats**: Text, CSV, and Markdown reports
+- **Multiple report formats**:
+  - **Table** (default): Compact Trivy-style tabular format with exploit classification
+  - **Security**: Production-ready report for AppSec teams with executive summary, risk analysis, and release recommendations
+  - **Text**: Tree-structured detailed view
+  - **CSV/Markdown/JSON**: Export formats for integration
+- **Intelligent risk assessment**: Exploit type classification, runtime exploitability analysis, and recommended actions
+- **Release gate decisions**: Automated recommendations (proceed/mitigate/block) based on findings
 
 ## Environment Variables
 
