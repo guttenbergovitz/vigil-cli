@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Dependencies holds parsed production and development dependencies.
@@ -39,8 +40,18 @@ func ParseNPMLock(r io.Reader) (*Dependencies, error) {
 			continue
 		}
 
-		// Extract package name from path (e.g., "node_modules/express" -> "express")
-		name := filepath.Base(pkgPath)
+		// Extract package name from path
+		// For scoped packages: "node_modules/@scope/name" -> "@scope/name"
+		// For regular packages: "node_modules/name" -> "name"
+		name := pkgPath
+		if idx := strings.LastIndex(pkgPath, "node_modules/"); idx >= 0 {
+			name = pkgPath[idx+len("node_modules/"):]
+			// Remove any nested node_modules subdirectories (transitive deps)
+			// e.g., "node_modules/foo/node_modules/bar" -> "bar"
+			if subIdx := strings.Index(name, "/node_modules/"); subIdx >= 0 {
+				name = name[subIdx+len("/node_modules/"):]
+			}
+		}
 
 		if pkg.Dev {
 			deps.Development[name] = pkg.Version

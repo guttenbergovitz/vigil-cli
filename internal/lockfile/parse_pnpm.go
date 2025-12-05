@@ -297,6 +297,7 @@ func ParsePnpmLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 	}
 
 	graph.CalculateDepths()
+
 	return graph, nil
 }
 

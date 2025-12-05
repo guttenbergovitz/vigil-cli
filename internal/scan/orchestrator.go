@@ -106,6 +106,10 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 	nodesToScan := 0
 	var nodesToScanList []*types.DependencyNode
 	for _, node := range graph.Nodes {
+		// Skip orphaned nodes (not reachable from root)
+		if node.Depth == -1 {
+			continue
+		}
 		if skipDevDeps && node.Type == types.Development {
 			continue
 		}
@@ -257,6 +261,10 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *typ
 	deps := make([]types.Dependency, 0, len(graph.Nodes))
 
 	for _, node := range graph.Nodes {
+		// Skip orphaned nodes
+		if node.Depth == -1 {
+			continue
+		}
 		dep := types.Dependency{
 			Name:            node.Name,
 			Version:         node.Version,
