@@ -23,8 +23,13 @@ vigil report
 
 ## Features
 
+- **Multi-ecosystem SCA scanning** - JavaScript/TypeScript, Python, Rust, PHP, and Go projects
+- **Secret Scanning** - Detect hardcoded AWS keys, GitHub tokens, Slack webhooks, SSH keys, and DB credentials using regex and Shannon entropy analysis
+- **Software Bill of Materials (SBOM)** - Export industry-standard **CycloneDX v1.5** and **SPDX v2.3** JSON formats
+- **License Compliance** - Categorize licenses into Permissive (MIT, Apache) vs Copyleft (GPL, AGPL) risk levels
+- **Container & IaC Security** - Audit Dockerfiles and GitHub Actions workflows for security misconfigurations
 - **Remote repository scanning** - Scan GitHub, Bitbucket, and other git repositories directly without cloning manually
-- **Full dependency chain tracking** - Shows complete vulnerability paths for all lock file types (npm, Yarn, pnpm)
+- **Full dependency chain tracking** - Shows complete vulnerability paths for all supported lock file types
 - **Temporal filtering** - Eliminates 30-40% false positives by filtering vulnerabilities published before package release
 - **Multi-source CVSS enrichment** - Aggregates scores from NVD, GitHub Security Advisories, and OSV
 - **Interactive TUI** - Real-time scanning progress with live vulnerability table
@@ -32,8 +37,9 @@ vigil report
 - **Multiple report formats**
   - **Table** (default): Compact Trivy-style tabular format with exploit classification
   - **Security**: Production-ready report for AppSec teams with executive summary
+  - **CycloneDX / SPDX**: Industry-standard SBOM export formats (JSON)
   - **Text**: Tree-structured detailed view
-  - **CSV/Markdown/JSON**: Export formats for integration
+  - **CSV / Markdown / JSON**: Export formats for integration
 - **Intelligent risk assessment** - Exploit type classification and runtime exploitability analysis
 - **Release gate decisions** - Automated recommendations (proceed/mitigate/block)
 

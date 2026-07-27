@@ -345,6 +345,7 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *typ
 		dep := types.Dependency{
 			Name:            node.Name,
 			Version:         node.Version,
+			Ecosystem:       lockType.Ecosystem(),
 			Type:            node.Type,
 			Vulnerabilities: node.Vulnerabilities,
 		}

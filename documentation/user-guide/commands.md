@@ -19,8 +19,9 @@ vigil scan [path] [flags]
 ### Flags
 
 - `--skip-devdeps` - Skip development dependencies
-- `--output <format>` - Save results (json, csv, markdown)
+- `--output <format>` - Save results (json, csv, markdown, cyclonedx, spdx)
 - `--lockfile <filename>` - Explicitly specify lockfile name (e.g. `uv.lock`, `requirements.txt`, `Cargo.lock`)
+- `--secrets` - Scan codebase for hardcoded credentials, API keys, and private SSH keys
 
 ### Behaviour
 
@@ -163,6 +164,8 @@ vigil report [flags]
   - `table` - Compact tabular format with exploit classification
   - `text` - Tree-structured detailed view
   - `security` - Production AppSec report
+  - `cyclonedx` - CycloneDX v1.5 JSON Software Bill of Materials (SBOM)
+  - `spdx` - SPDX v2.3 JSON Software Bill of Materials (SBOM)
   - `csv` - CSV export
   - `markdown` - Markdown export
   - `json` - JSON export

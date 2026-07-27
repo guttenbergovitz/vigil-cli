@@ -69,7 +69,11 @@ func Report(args []string) error {
 		return export.Markdown(result, out)
 	case "json":
 		return export.JSON(result, out)
+	case "cyclonedx":
+		return export.CycloneDX(result, out)
+	case "spdx":
+		return export.SPDX(result, out)
 	default:
-		return fmt.Errorf("unknown format: %s (available: table, text, security, csv, markdown, json)", *format)
+		return fmt.Errorf("unknown format: %s (available: table, text, security, csv, markdown, json, cyclonedx, spdx)", *format)
 	}
 }

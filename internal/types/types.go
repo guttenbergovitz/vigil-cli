@@ -74,4 +74,5 @@ type ScanResult struct {
 	HighVulns        int
 	MediumVulns      int
 	LowVulns         int
+	SecretCount      int
 }

@@ -46,6 +46,7 @@ Historical design decisions:
 - [ADR-006: Internal by Default](adr/006-internal-by-default.md)
 - [ADR-007: Security Report Format](adr/007-security-report-format.md)
 - [ADR-008: Multi-Ecosystem Support](adr/008-multi-ecosystem-support.md)
+- [ADR-009: Full-Spectrum Security & SBOM Engine](adr/009-full-spectrum-security-and-sbom.md)
 
 ## Quick Links
 
