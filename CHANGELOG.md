@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-27
+
+### Added
+
+- **Full-Width Top Table & 3-Column Bottom Pane Layout Architecture**
+  - **Top Section (Full-Width Box 1)**: Rich 5-column table (`DOMAIN`, `SEVERITY`, `TARGET / PACKAGE`, `ID / RULE`, `REASON SUMMARY`) spanning 100% of body width.
+  - **Bottom Section (3 Side-by-Side Columns)**:
+    - `💡 [2] Reason Why Flagged` (Width: 25%) - Word-wrapped reason for active item.
+    - `󰈔 [3] Detailed Inspection` (Width: 50%) - Complete CVSS score & vector, context, and remediation.
+    - `󰒍 [4] Dependency Tree Path` (Width: 25%) - Dependency tree graph path.
+
 ## [1.4.7] - 2026-07-27
 
 ### Fixed
