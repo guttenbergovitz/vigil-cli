@@ -1,6 +1,6 @@
 # Vigil CLI
 
-Lightweight vulnerability scanner for JavaScript/TypeScript projects.
+Lightweight vulnerability scanner for JavaScript/TypeScript, Python, Rust, PHP, and Go projects.
 
 Analyses dependency trees and reports CVE exposure with context, enriched CVSS scores, and detailed vulnerability information.
 
@@ -39,8 +39,8 @@ vigil report
 
 ## Requirements
 
-- Go 1.24+
-- Node.js/TypeScript project with lock file (`package-lock.json`, `yarn.lock`, or `pnpm-lock.yaml`)
+- Go 1.24+ (if building from source)
+- Project with a supported lock file (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `requirements.txt`, `Cargo.lock`, `composer.lock`, or `go.mod`)
 
 ## Installation
 

@@ -20,6 +20,7 @@ vigil scan [path] [flags]
 
 - `--skip-devdeps` - Skip development dependencies
 - `--output <format>` - Save results (json, csv, markdown)
+- `--lockfile <filename>` - Explicitly specify lockfile name (e.g. `uv.lock`, `requirements.txt`, `Cargo.lock`)
 
 ### Behaviour
 
@@ -113,18 +114,25 @@ API calls are rate-limited to respect service limits:
 
 ### Lock File Support
 
-**npm (package-lock.json):**
-- v1, v2, v3 formats supported
-- Flat and nested structures
+**JavaScript / TypeScript:**
+- `package-lock.json` (npm v1, v2, v3)
+- `yarn.lock` (Yarn v1, v2+)
+- `pnpm-lock.yaml` (pnpm v5, v6, v9)
 
-**Yarn (yarn.lock):**
-- Yarn v1 (classic)
-- Yarn v2+ (Berry)
+**Python:**
+- `uv.lock` (uv)
+- `poetry.lock` (Poetry)
+- `Pipfile.lock` (Pipenv)
+- `requirements.txt` (pip)
 
-**pnpm (pnpm-lock.yaml):**
-- v5, v6, v9 formats
-- Peer dependency resolution
-- Workspace support
+**Rust:**
+- `Cargo.lock` (Cargo)
+
+**PHP:**
+- `composer.lock` (Composer)
+
+**Go:**
+- `go.mod` (Go modules)
 
 ### Output
 
