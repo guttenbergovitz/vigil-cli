@@ -50,7 +50,20 @@ vigil report
 go install github.com/guttenbergovitz/vigil-cli/cmd/vigil@latest
 ```
 
-### Option 2: Build from Source
+### Option 2: Docker
+
+```bash
+docker pull guttenbergovitz/vigil:latest
+docker run --rm -v "$(pwd):/scan" guttenbergovitz/vigil:latest scan .
+```
+
+### Option 3: Nix
+
+```bash
+nix run github:guttenbergovitz/vigil-cli -- scan .
+```
+
+### Option 4: Build from Source
 
 ```bash
 # Install task runner (if not installed)

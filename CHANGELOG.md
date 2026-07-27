@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-27
+
+### Added
+
+- **Containerization & Nix Flake support** (ADR 003)
+  - Multi-stage `Dockerfile` for minimal Alpine-based runtime (~20MB)
+  - `flake.nix` with hermetic Go builds, development shell, and `nix run` support
+  - Comprehensive Taskfile automation for Docker (`docker-build`, `docker-run`, `docker-scan`, `docker-push`, `docker-clean`)
+  - Comprehensive Taskfile automation for Nix (`nix-build`, `nix-run`, `nix-scan`, `nix-shell`, `nix-check`)
+
 ### Changed
 
 - Replaced Makefile with Taskfile for build automation
@@ -76,5 +86,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release gate recommendations
 - CI/CD integration with configurable failure thresholds
 
-[Unreleased]: https://github.com/guttenbergovitz/vigil-cli/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/guttenbergovitz/vigil-cli/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/guttenbergovitz/vigil-cli/releases/tag/v1.1.0
 [1.0.0]: https://github.com/guttenbergovitz/vigil-cli/releases/tag/v1.0.0

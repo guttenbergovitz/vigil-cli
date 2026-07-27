@@ -87,3 +87,70 @@ tasks:
     cmds:
       - task: build
       - ./{{.BINARY}} version
+
+  docker-build:
+    desc: Build Docker image
+    cmds:
+      - |
+        docker build \
+          --build-arg VERSION={{.VERSION}} \
+          --build-arg COMMIT={{.COMMIT}} \
+          --build-arg DATE={{.DATE}} \
+          -t vigil:{{.VERSION}} \
+          -t vigil:latest \
+          .
+
+  docker-run:
+    desc: Run Docker container
+    cmds:
+      - docker run --rm vigil:latest version
+
+  docker-scan:
+    desc: Run scan in Docker (mount current dir)
+    cmds:
+      - |
+        docker run --rm \
+          -v "$(pwd):/scan" \
+          -e NVD_API_KEY="${NVD_API_KEY}" \
+          -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
+          vigil:latest scan .
+
+  docker-push:
+    desc: Push to DockerHub (requires login)
+    cmds:
+      - docker tag vigil:{{.VERSION}} guttenbergovitz/vigil:{{.VERSION}}
+      - docker tag vigil:latest guttenbergovitz/vigil:latest
+      - docker push guttenbergovitz/vigil:{{.VERSION}}
+      - docker push guttenbergovitz/vigil:latest
+
+  docker-clean:
+    desc: Remove local Docker image tags
+    cmds:
+      - docker rmi vigil:{{.VERSION}} vigil:latest 2>/dev/null || true
+
+  nix-build:
+    desc: Build binary using Nix Flake
+    cmds:
+      - nix build --extra-experimental-features 'nix-command flakes' .
+
+  nix-run:
+    desc: Run version command using Nix Flake
+    cmds:
+      - nix run --extra-experimental-features 'nix-command flakes' . -- version
+
+  nix-scan:
+    desc: Run scan using Nix Flake (scan current directory)
+    cmds:
+      - |
+        nix run --extra-experimental-features 'nix-command flakes' . -- scan .
+
+  nix-shell:
+    desc: Enter Nix development environment
+    cmds:
+      - nix develop --extra-experimental-features 'nix-command flakes'
+
+  nix-check:
+    desc: Check Nix Flake output and syntax
+    cmds:
+      - nix flake check --extra-experimental-features 'nix-command flakes'
+

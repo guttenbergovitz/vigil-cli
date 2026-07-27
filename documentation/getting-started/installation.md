@@ -64,7 +64,60 @@ sudo mv vigil /usr/local/bin/
 ./vigil scan .
 ```
 
-## Option 3: Development Build
+## Option 3: Docker Container
+
+Run without installing Go:
+
+```bash
+# Pull from DockerHub
+docker pull guttenbergovitz/vigil:latest
+
+# Scan local directory
+docker run --rm -v "$(pwd):/scan" guttenbergovitz/vigil:latest scan .
+
+# With API keys for better rate limits
+docker run --rm \
+  -v "$(pwd):/scan" \
+  -e NVD_API_KEY="${NVD_API_KEY}" \
+  -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
+  guttenbergovitz/vigil:latest scan .
+
+# Check version
+docker run --rm guttenbergovitz/vigil:latest version
+```
+
+**Build locally**:
+
+```bash
+docker build -t vigil:latest .
+docker run --rm -v "$(pwd):/scan" vigil:latest scan .
+```
+
+**Environment variables**:
+- `NVD_API_KEY` - Improves NVD rate limits (5/30s → 50/30s)
+- `GITHUB_TOKEN` - For private repos and GHSA rate limits
+
+## Option 4: Nix Flake
+
+For Nix users:
+
+```bash
+# Run directly from GitHub
+nix run github:guttenbergovitz/vigil-cli -- scan .
+
+# Build locally
+git clone https://github.com/guttenbergovitz/vigil-cli
+cd vigil-cli
+nix build
+./result/bin/vigil version
+
+# Development shell with all tools
+nix develop
+```
+
+Nix provides reproducible, declarative builds with zero configuration.
+
+## Option 5: Development Build
 
 For contributing or testing unreleased features:
 

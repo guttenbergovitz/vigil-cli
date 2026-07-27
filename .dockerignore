@@ -1,0 +1,34 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+documentation/
+*.md
+!README.md
+
+# Build artifacts
+vigil
+bin/
+dist/
+.task/
+
+# Cache
+.vigil.cache
+.vigil/
+.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Tests
+*_test.go
+test-project/
+
+# CI/CD
+.github/

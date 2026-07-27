@@ -20,6 +20,8 @@ go.work
 /bin/
 /dist/
 /vigil
+/result
+/result-*
 
 # Cache and temp
 .vigil.cache
