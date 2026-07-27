@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-27
+
+### Fixed
+
+- **Subtract 5-Column Cell Padding Margins in Table Column Width Calculations**
+  - Subtracted 18 characters from `availWidth` for 5-column table widths (`tableInnerWidth := availWidth - 18`) to account for bubbles/table internal cell padding spaces.
+  - Completely eliminated any row line-wrapping and header underline overflow in Box 1 full-width table.
+
 ## [1.5.1] - 2026-07-27
 
 ### Fixed

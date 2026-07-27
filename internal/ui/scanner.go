@@ -586,8 +586,8 @@ func (m *Model) recalculateViewports() {
 		wChain = m.width - 2
 	}
 
-	// Calculate rich 5-column table widths spanning full width across the top
-	tableInnerWidth := availWidth - 10
+	// Calculate rich 5-column table widths spanning full width across the top (subtracting 18 for outer box border & 5-column cell padding)
+	tableInnerWidth := availWidth - 18
 	if tableInnerWidth < 30 {
 		tableInnerWidth = 30
 	}
@@ -822,8 +822,8 @@ func (m *Model) renderScanning() string {
 		availWidth = 20
 	}
 
-	// Calculate dynamic table column widths for scanning view (subtracting 14 for outer box border & cell padding)
-	scanTableInnerWidth := availWidth - 14
+	// Calculate dynamic table column widths for scanning view (subtracting 18 for outer box border & 5-column cell padding)
+	scanTableInnerWidth := availWidth - 18
 	if scanTableInnerWidth < 30 {
 		scanTableInnerWidth = 30
 	}
