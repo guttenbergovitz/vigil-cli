@@ -126,10 +126,9 @@ func NewModel() *Model {
 	p := progress.New(progress.WithDefaultGradient())
 
 	columns := []table.Column{
-		{Title: "SEVERITY", Width: 12},
-		{Title: "TARGET / PACKAGE", Width: 22},
-		{Title: "ID / RULE", Width: 18},
-		{Title: "REASON SUMMARY", Width: 40},
+		{Title: "SEVERITY", Width: 10},
+		{Title: "TARGET / PACKAGE", Width: 25},
+		{Title: "ID / RULE", Width: 20},
 	}
 
 	t := table.New(
@@ -570,25 +569,22 @@ func (m *Model) recalculateViewports() {
 		bottomHeight = bodyHeight
 	}
 
-	// Calculate dynamic table column widths fitting leftWidth exactly
+	// Calculate dynamic table column widths fitting leftWidth exactly with 3 clean columns
 	tableInnerWidth := leftWidth - 6
-	if tableInnerWidth < 30 {
-		tableInnerWidth = 30
+	if tableInnerWidth < 25 {
+		tableInnerWidth = 25
 	}
 	sevColWidth := 10
-	targetColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.35)
-	idColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.30)
-	reasonColWidth := tableInnerWidth - sevColWidth - targetColWidth - idColWidth
-	if reasonColWidth < 10 {
-		reasonColWidth = 10
+	targetColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.55)
+	idColWidth := tableInnerWidth - sevColWidth - targetColWidth
+	if idColWidth < 10 {
+		idColWidth = 10
 	}
-	m.tableReasonColWidth = reasonColWidth
 
 	m.vulnTable.SetColumns([]table.Column{
 		{Title: "SEVERITY", Width: sevColWidth},
-		{Title: "TARGET", Width: targetColWidth},
+		{Title: "TARGET / PACKAGE", Width: targetColWidth},
 		{Title: "ID / RULE", Width: idColWidth},
-		{Title: "REASON", Width: reasonColWidth},
 	})
 
 	m.vulnTable.SetWidth(leftWidth - 4)
@@ -607,24 +603,12 @@ func (m *Model) recalculateViewports() {
 }
 
 func (m *Model) updateTableLayout() {
-	reasonColWidth := m.tableReasonColWidth
-	if reasonColWidth <= 0 {
-		reasonColWidth = 25
-	}
-
 	var rows []table.Row
 	for _, item := range m.filteredItems {
-		reasonSummary := item.ReasonFlagged
-		if len(reasonSummary) > reasonColWidth {
-			if reasonColWidth > 3 {
-				reasonSummary = reasonSummary[:reasonColWidth-3] + "..."
-			}
-		}
 		rows = append(rows, table.Row{
 			strings.ToUpper(item.Severity),
 			item.Package,
 			item.ID,
-			reasonSummary,
 		})
 	}
 	m.vulnTable.SetRows(rows)
@@ -774,19 +758,16 @@ func (m *Model) renderScanning() string {
 	// Calculate dynamic table column widths for scanning view
 	scanTableInnerWidth := availWidth - 6
 	sevColWidth := 10
-	targetColWidth := int(float64(scanTableInnerWidth-sevColWidth) * 0.35)
-	idColWidth := int(float64(scanTableInnerWidth-sevColWidth) * 0.30)
-	reasonColWidth := scanTableInnerWidth - sevColWidth - targetColWidth - idColWidth
-	if reasonColWidth < 10 {
-		reasonColWidth = 10
+	targetColWidth := int(float64(scanTableInnerWidth-sevColWidth) * 0.55)
+	idColWidth := scanTableInnerWidth - sevColWidth - targetColWidth
+	if idColWidth < 10 {
+		idColWidth = 10
 	}
-	m.tableReasonColWidth = reasonColWidth
 
 	m.vulnTable.SetColumns([]table.Column{
 		{Title: "SEVERITY", Width: sevColWidth},
 		{Title: "TARGET", Width: targetColWidth},
 		{Title: "ID / RULE", Width: idColWidth},
-		{Title: "REASON", Width: reasonColWidth},
 	})
 	m.vulnTable.SetWidth(availWidth - 4)
 	m.vulnTable.SetHeight(bodyHeight - 8)
