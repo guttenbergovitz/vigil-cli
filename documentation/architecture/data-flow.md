@@ -37,18 +37,18 @@ Cache hit avoids all API calls.
 ### 3. Lock File Parsing
 
 ```
-lockfile.ParseLockFile() or lockfile.ParsePnpmLockGraph()
+lockfile.ParseNPMLockGraph() or ParseYarnLockGraph() or ParsePnpmLockGraph()
   ↓
 Extract dependencies with versions
   ↓
-Build DependencyGraph (for pnpm) or flat list (npm/Yarn)
+Build DependencyGraph with parent/child relationships
   ↓
 Tag each dependency: production or development
+  ↓
+Calculate depths via BFS from root nodes
 ```
 
-**npm/Yarn**: Flat dependency list
-
-**pnpm**: Full graph with parent/child relationships
+All lock file types now parse to full dependency graphs with edges.
 
 ### 4. Vulnerability Discovery (OSV)
 
@@ -163,7 +163,7 @@ Return filtered vulnerability list
 
 ### 9. Dependency Path Resolution
 
-For pnpm (graph available):
+For all lock file types (graph available):
 
 ```
 graph.GetVulnerablePath(nodeKey)
@@ -173,11 +173,7 @@ Walk backwards through parents
 Build chain: root → ... → vulnerable package
 ```
 
-For npm/Yarn (flat list):
-
-```
-Direct dependencies only (no graph)
-```
+All lock file formats now provide full dependency chain tracking.
 
 ### 10. Risk Scoring
 

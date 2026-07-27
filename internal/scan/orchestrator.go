@@ -47,7 +47,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 
 	var graph *types.DependencyGraph
 
-	if lockType == lockfile.PnpmLock {
+	// All lock types now use graph parsers for proper dependency chains
+	switch lockType {
+	case lockfile.PnpmLock:
 		graph, err = lockfile.ParsePnpmLockGraph(lockf)
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to parse pnpm-lock.yaml: %v", err)
@@ -56,31 +58,26 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 			}
 			return nil, fmt.Errorf("failed to parse pnpm-lock.yaml: %w", err)
 		}
-	} else {
-		deps, err := lockfile.ParseLockFile(lockf, lockType)
+	case lockfile.NPMLock:
+		graph, err = lockfile.ParseNPMLockGraph(lockf)
 		if err != nil {
-			errMsg := fmt.Sprintf("Failed to parse lock file: %v", err)
+			errMsg := fmt.Sprintf("Failed to parse package-lock.json: %v", err)
 			if reporter != nil {
 				reporter.Error(errMsg)
 			}
-			return nil, fmt.Errorf("failed to parse lock file: %w", err)
+			return nil, fmt.Errorf("failed to parse package-lock.json: %w", err)
 		}
-
-		depTree, err := lockfile.BuildDependencyTree(deps)
+	case lockfile.YarnLock:
+		graph, err = lockfile.ParseYarnLockGraph(lockf)
 		if err != nil {
-			errMsg := fmt.Sprintf("Failed to build dependency tree: %v", err)
+			errMsg := fmt.Sprintf("Failed to parse yarn.lock: %v", err)
 			if reporter != nil {
 				reporter.Error(errMsg)
 			}
-			return nil, fmt.Errorf("failed to build dependency tree: %w", err)
+			return nil, fmt.Errorf("failed to parse yarn.lock: %w", err)
 		}
-
-		graph = types.NewDependencyGraph()
-		for _, dep := range depTree {
-			graph.AddNode(dep.Name, dep.Version, dep.Type, true)
-			graph.Root = append(graph.Root, dep.Name+"@"+dep.Version)
-		}
-		graph.CalculateDepths()
+	default:
+		return nil, fmt.Errorf("unsupported lock file type: %s", lockType)
 	}
 
 	// Check if graph has any nodes

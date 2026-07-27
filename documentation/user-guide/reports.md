@@ -109,7 +109,7 @@ Guide to interpreting Vigil output.
 
 ## Dependency Paths
 
-Vulnerability paths show transitive dependency chains:
+Vulnerability paths show transitive dependency chains for all lock file types (npm, Yarn, pnpm):
 
 ```
 express@4.18.2 → semver@7.3.5
@@ -125,6 +125,8 @@ next@14.0.0 → webpack@5.88.0 → terser@5.19.2
 ```
 
 Fix by updating root dependency (`next`) which pulls in fixed version.
+
+All lock file formats now provide full dependency chain visibility.
 
 ## CVSS Vectors
 

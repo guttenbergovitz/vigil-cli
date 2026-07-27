@@ -360,3 +360,134 @@ func ParseYarnLock(r io.Reader) (*Dependencies, error) {
 
 	return deps, nil
 }
+
+// ParseYarnLockGraph parses yarn.lock and returns full dependency graph.
+func ParseYarnLockGraph(r io.Reader) (*types.DependencyGraph, error) {
+	graph := types.NewDependencyGraph()
+
+	// Package entry being parsed
+	type yarnPackage struct {
+		name         string
+		version      string
+		dependencies map[string]string
+	}
+
+	scanner := bufio.NewScanner(r)
+	var current *yarnPackage
+	packages := make(map[string]*yarnPackage)
+	inDependencies := false
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Check if this is a package header (not indented)
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			// Save previous package if exists
+			if current != nil && current.name != "" && current.version != "" {
+				key := current.name + "@" + current.version
+				packages[key] = current
+			}
+
+			// Start new package
+			current = &yarnPackage{
+				dependencies: make(map[string]string),
+			}
+			inDependencies = false
+
+			// Parse package header
+			header := strings.TrimSuffix(trimmed, ":")
+			header = strings.Trim(header, "\"")
+
+			// Handle both v1 (@version) and v2+ (@npm:version)
+			if strings.Contains(header, "@npm:") {
+				parts := strings.Split(header, "@npm:")
+				if len(parts) == 2 {
+					current.name = parts[0]
+				}
+			} else if lastAt := strings.LastIndex(header, "@"); lastAt > 0 {
+				current.name = header[:lastAt]
+			}
+		} else if current != nil {
+			// Count leading spaces to determine indentation level
+			leadingSpaces := len(line) - len(strings.TrimLeft(line, " \t"))
+
+			if leadingSpaces == 2 || (leadingSpaces == 1 && strings.HasPrefix(line, "\t")) {
+				// Level 1 indentation (2 spaces or 1 tab) - package fields
+				inDependencies = false
+
+				if strings.HasPrefix(trimmed, "version ") {
+					// version "X.Y.Z" format
+					parts := strings.Fields(trimmed)
+					if len(parts) >= 2 {
+						version := strings.Trim(parts[1], "\"")
+						current.version = version
+					}
+				} else if strings.HasPrefix(trimmed, "dependencies:") {
+					inDependencies = true
+				}
+			} else if (leadingSpaces >= 4 || (leadingSpaces >= 2 && strings.HasPrefix(line, "\t\t"))) && inDependencies {
+				// Level 2 indentation (4+ spaces or 2+ tabs) - dependency entries
+				// Parse dependency line: "    package-name \"version\""
+				parts := strings.Fields(trimmed)
+				if len(parts) >= 2 {
+					depName := parts[0]
+					depVersion := strings.Trim(parts[1], "\"")
+					if depName != "" && depVersion != "" {
+						current.dependencies[depName] = depVersion
+					}
+				}
+			}
+		}
+	}
+
+	// Save last package
+	if current != nil && current.name != "" && current.version != "" {
+		key := current.name + "@" + current.version
+		packages[key] = current
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parse yarn lock graph: %w", err)
+	}
+
+	// First pass: add all nodes
+	for key, pkg := range packages {
+		graph.AddNode(pkg.name, pkg.version, types.Production, false)
+		_ = key // key is name@version
+	}
+
+	// Second pass: add edges
+	for _, pkg := range packages {
+		parentKey := pkg.name + "@" + pkg.version
+
+		for depName, depVersion := range pkg.dependencies {
+			childKey := depName + "@" + depVersion
+			graph.AddEdge(parentKey, childKey)
+		}
+	}
+
+	// Third pass: identify roots (packages not referenced as children)
+	childNodes := make(map[string]bool)
+	for _, node := range graph.Nodes {
+		for _, child := range node.Children {
+			childNodes[child] = true
+		}
+	}
+
+	for key, node := range graph.Nodes {
+		if !childNodes[key] {
+			node.Direct = true
+			graph.Root = append(graph.Root, key)
+		}
+	}
+
+	graph.CalculateDepths()
+
+	return graph, nil
+}
