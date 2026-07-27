@@ -7,6 +7,7 @@ type Dependency struct {
 	Name            string
 	Version         string
 	Type            DependencyType // production or development
+	ReleasedAt      *time.Time     // Package release date from npm registry (for temporal filtering)
 	Vulnerabilities []Vulnerability
 }
 

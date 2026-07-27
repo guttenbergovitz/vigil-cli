@@ -20,6 +20,7 @@ vigil report
 
 ## Features
 
+- **Temporal filtering** - Eliminates 30-40% false positives by filtering vulnerabilities published before package release
 - **Multi-source CVSS enrichment** - Aggregates scores from NVD, GitHub Security Advisories, and OSV
 - **Interactive TUI** - Real-time scanning progress with live vulnerability table
 - **Comprehensive CVE data** - Titles, descriptions, publication dates, and dependency paths

@@ -9,6 +9,7 @@ import (
 
 	"github.com/guttenbergovitz/vigil-cli/internal/github"
 	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
+	"github.com/guttenbergovitz/vigil-cli/internal/npm"
 	"github.com/guttenbergovitz/vigil-cli/internal/nvd"
 	"github.com/guttenbergovitz/vigil-cli/internal/osv"
 	"github.com/guttenbergovitz/vigil-cli/internal/types"
@@ -102,6 +103,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	githubClient := github.New(githubToken, 10)
 
+	// Initialize npm registry client for temporal filtering
+	npmClient := npm.New("https://registry.npmjs.org", 10)
+
 	// Count nodes to scan and collect them
 	nodesToScan := 0
 	var nodesToScanList []*types.DependencyNode
@@ -139,6 +143,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 			// fmt.Fprintf(os.Stderr, "DEBUG: Error scanning %s@%s: %v\n", node.Name, node.Version, err)
 			continue
 		}
+
+		// Fetch package release date for temporal filtering
+		releasedAt, _ := npmClient.GetReleaseDate(node.Name, node.Version)
 
 		// Process vulnerabilities
 		for j := range vulns {
@@ -232,6 +239,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 				}
 			}
 		}
+
+		// Apply temporal filtering (remove vulnerabilities published before package release)
+		vulns = types.FilterTemporalFalsePositives(releasedAt, vulns)
 
 		node.Vulnerabilities = vulns
 		totalVulns += len(vulns)
