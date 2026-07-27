@@ -15,6 +15,7 @@ New to Vigil? Start here:
 Using Vigil in production:
 
 - [Commands](user-guide/commands.md) - Complete CLI reference
+- [Interactive TUI Dashboard](user-guide/tui.md) - Fullscreen Lazygit/btm multi-pane dashboard
 - [Reports](user-guide/reports.md) - Understanding output formats
 - [Troubleshooting](user-guide/troubleshooting.md) - Common issues and solutions
 
