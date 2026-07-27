@@ -167,7 +167,7 @@ func Scan(args []string) error {
 			if err == nil {
 				result.SecretCount = len(findings)
 				if len(findings) > 0 {
-					fmt.Printf("\n🔑 Secret Scan Findings (%d leaked credentials/secrets detected):\n", len(findings))
+					fmt.Printf("\n󰌆 Secret Scan Findings (%d leaked credentials/secrets detected):\n", len(findings))
 					for _, f := range findings {
 						relPath, _ := filepath.Rel(absPath, f.FilePath)
 						if relPath == "" {
@@ -176,7 +176,7 @@ func Scan(args []string) error {
 						fmt.Printf("  • [%s] %s:%d -> %s\n", f.Type, relPath, f.LineNumber, f.Match)
 					}
 				} else {
-					fmt.Println("\n🔑 Secret Scan: No leaked credentials or hardcoded secrets detected.")
+					fmt.Println("\n󰌆 Secret Scan: No leaked credentials or hardcoded secrets detected.")
 				}
 			}
 		}
@@ -224,19 +224,19 @@ func handleScanResult(result *types.ScanResult, outputFmt string, finalModel *ui
 		}
 	} else {
 		// Print summary
-		fmt.Printf("\n✓ Scan complete: %d dependencies, %d vulnerabilities\n",
+		fmt.Printf("\n󰄬 Scan complete: %d dependencies, %d vulnerabilities\n",
 			len(result.Dependencies), result.TotalVulns)
 		if result.CriticalVulns > 0 {
-			fmt.Printf("  🔴 Critical: %d\n", result.CriticalVulns)
+			fmt.Printf("  󰅚 Critical: %d\n", result.CriticalVulns)
 		}
 		if result.HighVulns > 0 {
-			fmt.Printf("  🟠 High: %d\n", result.HighVulns)
+			fmt.Printf("  󰀦 High:     %d\n", result.HighVulns)
 		}
 		if result.MediumVulns > 0 {
-			fmt.Printf("  🟡 Medium: %d\n", result.MediumVulns)
+			fmt.Printf("  󰀦 Medium:   %d\n", result.MediumVulns)
 		}
 		if result.LowVulns > 0 {
-			fmt.Printf("  🔵 Low: %d\n", result.LowVulns)
+			fmt.Printf("  󰌵 Low:      %d\n", result.LowVulns)
 		}
 	}
 
