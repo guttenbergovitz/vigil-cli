@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-07-27
+
+### Fixed
+
+- **Simplify Box 1 Table to 3 Wide Columns (`SEVERITY`, `TARGET / PACKAGE`, `ID / RULE`)**
+  - Removed redundant `REASON` column from Box 1 table, since full word-wrapped reasons are rendered in adjacent Box 2 (`💡 Reason Why Flagged`).
+  - Allocated 100% of Box 1 width to `SEVERITY`, `TARGET / PACKAGE`, and `ID / RULE` columns, completely eliminating any row or line wrapping visual bugs.
+
 ## [1.4.4] - 2026-07-27
 
 ### Fixed
