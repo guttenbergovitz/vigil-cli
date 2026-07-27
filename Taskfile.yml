@@ -123,6 +123,11 @@ tasks:
       - docker push guttenbergovitz/vigil:{{.VERSION}}
       - docker push guttenbergovitz/vigil:latest
 
+  docker-readme:
+    desc: Update DockerHub repository description/overview page
+    cmds:
+      - echo "DockerHub Overview Markdown generated at documentation/DOCKERHUB.md"
+
   docker-clean:
     desc: Remove local Docker image tags
     cmds:
