@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-07-27
+
+### Fixed
+
+- **Fix Table Column Width & Underline Line Wrapping Visual Bug**
+  - Dynamically calculate table column widths (`SEVERITY`, `TARGET`, `ID / RULE`, `REASON`) fitting `leftWidth` exactly.
+  - Automatically truncate reason summary to fit allocated column width, completely eliminating table header underline line wrapping.
+
 ## [1.4.2] - 2026-07-27
 
 ### Fixed
