@@ -1,5 +1,5 @@
 {
-  description = "Vigil CLI - Vulnerability scanner for JavaScript/TypeScript projects";
+  description = "Vigil CLI - Vulnerability scanner for JavaScript/TypeScript, Python, Rust, PHP, and Go projects";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -32,7 +32,7 @@
           subPackages = [ "cmd/vigil" ];
 
           meta = with pkgs.lib; {
-            description = "Vulnerability scanner for JavaScript/TypeScript projects";
+            description = "Vulnerability scanner for JavaScript/TypeScript, Python, Rust, PHP, and Go projects";
             homepage = "https://github.com/guttenbergovitz/vigil-cli";
             license = licenses.mit;
             maintainers = [ ];

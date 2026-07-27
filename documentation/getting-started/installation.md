@@ -66,14 +66,17 @@ sudo mv vigil /usr/local/bin/
 
 ## Option 3: Docker Container
 
-Run without installing Go:
+Run without installing Go or language runtimes:
 
 ```bash
 # Pull from DockerHub
 docker pull guttenbergovitz/vigil:latest
 
-# Scan local directory
+# Scan local directory (JS, Python, Rust, PHP, Go)
 docker run --rm -v "$(pwd):/scan" guttenbergovitz/vigil:latest scan .
+
+# Scan specific lockfile in polyglot repo
+docker run --rm -v "$(pwd):/scan" guttenbergovitz/vigil:latest scan . --lockfile uv.lock
 
 # With API keys for better rate limits
 docker run --rm \
@@ -89,7 +92,7 @@ docker run --rm guttenbergovitz/vigil:latest version
 **Build locally**:
 
 ```bash
-docker build -t vigil:latest .
+task docker-build
 docker run --rm -v "$(pwd):/scan" vigil:latest scan .
 ```
 
