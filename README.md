@@ -55,11 +55,11 @@ go install github.com/guttenbergovitz/vigil-cli/cmd/vigil@latest
 ```bash
 git clone https://github.com/guttenbergovitz/vigil-cli
 cd vigil-cli
-go build -o vigil ./cmd/vigil
+make build
 sudo mv vigil /usr/local/bin/
 ```
 
-See [Installation Guide](documentation/getting-started/installation.md) for details.
+The Makefile injects version information at build time. See [Installation Guide](documentation/getting-started/installation.md) for details.
 
 ## Usage
 
@@ -180,6 +180,10 @@ Ensures every vulnerability has a CVSS score for accurate risk assessment.
 ## Contributing
 
 See [Contributing Guide](documentation/development/contributing.md).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history and notable changes.
 
 ## Licence
 

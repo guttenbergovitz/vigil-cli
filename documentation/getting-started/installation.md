@@ -28,7 +28,20 @@ Clone and build manually:
 ```bash
 git clone https://github.com/guttenbergovitz/vigil-cli
 cd vigil-cli
+
+# Build with version info using Makefile (recommended)
+make build
+
+# Or build directly (no version injection)
 go build -o vigil ./cmd/vigil
+```
+
+The Makefile automatically injects version, commit hash, and build date:
+
+```bash
+make build   # Build binary with version info
+make install # Install to $GOPATH/bin with version info
+make version # Show current version information
 ```
 
 Move to PATH:
