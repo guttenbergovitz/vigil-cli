@@ -204,12 +204,12 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 
 			// 4. If still no CVSS, derive from severity as last resort
 			if vulns[j].CVSSScore == 0 {
-				vulns[j].CVSSScore = deriveCVSSFromSeverity(vulns[j].Severity)
+				vulns[j].CVSSScore = types.DeriveCVSSFromSeverity(vulns[j].Severity)
 			}
 
 			// 5. If CVSS is present but severity is weak/unknown, derive severity from CVSS
 			if vulns[j].CVSSScore > 0 {
-				derivedSev := severityFromCVSS(vulns[j].CVSSScore)
+				derivedSev := types.SeverityFromCVSS(vulns[j].CVSSScore)
 				if vulns[j].Severity == "" || strings.EqualFold(string(vulns[j].Severity), "medium") || strings.EqualFold(string(vulns[j].Severity), "unknown") {
 					vulns[j].Severity = derivedSev
 				}
@@ -316,36 +316,4 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *typ
 	}
 
 	return result
-}
-
-// deriveCVSSFromSeverity derives a CVSS score from severity level as last resort
-func deriveCVSSFromSeverity(severity types.Severity) float64 {
-	switch strings.ToLower(string(severity)) {
-	case "critical":
-		return 9.5 // High end of critical range
-	case "high":
-		return 7.5 // Middle of high range
-	case "medium":
-		return 5.0 // Middle of medium range
-	case "low":
-		return 2.5 // Middle of low range
-	default:
-		return 5.0 // Default to medium if unknown
-	}
-}
-
-// severityFromCVSS maps CVSS score to severity
-func severityFromCVSS(score float64) types.Severity {
-	switch {
-	case score >= 9.0:
-		return types.Critical
-	case score >= 7.0:
-		return types.High
-	case score >= 4.0:
-		return types.Medium
-	case score > 0:
-		return types.Low
-	default:
-		return types.Medium
-	}
 }

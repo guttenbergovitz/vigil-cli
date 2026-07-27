@@ -46,23 +46,9 @@ func CI(args []string) error {
 	}
 
 	// Determine fail threshold
-	severityMap := map[string]types.Severity{
-		"low":      types.Low,
-		"medium":   types.Medium,
-		"high":     types.High,
-		"critical": types.Critical,
-	}
-
-	minSev, ok := severityMap[*failOn]
+	minSev, ok := types.SeverityMap[*failOn]
 	if !ok {
 		return fmt.Errorf("invalid fail-on level: %s", *failOn)
-	}
-
-	severityOrder := map[types.Severity]int{
-		types.Low:      1,
-		types.Medium:   2,
-		types.High:     3,
-		types.Critical: 4,
 	}
 
 	// Check if vulnerabilities at or above threshold exist
@@ -72,7 +58,7 @@ func CI(args []string) error {
 	for _, dep := range result.Dependencies {
 		for _, vuln := range dep.Vulnerabilities {
 			// Check severity threshold
-			if severityOrder[vuln.Severity] >= severityOrder[minSev] {
+			if vuln.Severity.HigherOrEqualThan(minSev) {
 				failCount++
 			}
 

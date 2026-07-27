@@ -4,23 +4,9 @@ import "github.com/guttenbergovitz/vigil-cli/internal/types"
 
 // FilterByLevel filters scan results to show only vulns at or above specified level
 func FilterByLevel(result *types.ScanResult, level string) *types.ScanResult {
-	severityMap := map[string]types.Severity{
-		"low":      types.Low,
-		"medium":   types.Medium,
-		"high":     types.High,
-		"critical": types.Critical,
-	}
-
-	minSev, ok := severityMap[level]
+	minSev, ok := types.SeverityMap[level]
 	if !ok {
 		return result
-	}
-
-	severityOrder := map[types.Severity]int{
-		types.Low:      1,
-		types.Medium:   2,
-		types.High:     3,
-		types.Critical: 4,
 	}
 
 	filtered := &types.ScanResult{
@@ -40,7 +26,7 @@ func FilterByLevel(result *types.ScanResult, level string) *types.ScanResult {
 	for _, dep := range result.Dependencies {
 		var filteredVulns []types.Vulnerability
 		for _, vuln := range dep.Vulnerabilities {
-			if severityOrder[vuln.Severity] >= severityOrder[minSev] {
+			if vuln.Severity.HigherOrEqualThan(minSev) {
 				filteredVulns = append(filteredVulns, vuln)
 			}
 		}
