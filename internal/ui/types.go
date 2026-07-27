@@ -17,6 +17,16 @@ const (
 	TabDependencyGraph
 )
 
+// ActivePane represents the focused pane in the Lazygit multi-pane grid layout.
+type ActivePane int
+
+const (
+	PaneTable ActivePane = iota
+	PaneReason
+	PaneChain
+	PaneDetails
+)
+
 // GroupMode represents grouping in the TUI lists.
 type GroupMode int
 

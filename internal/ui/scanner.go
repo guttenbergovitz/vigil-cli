@@ -27,7 +27,6 @@ type ViewState int
 const (
 	StateScanning ViewState = iota
 	StateExplorer
-	StateDetail
 	StateExportModal
 )
 
@@ -62,10 +61,12 @@ type VulnEntry struct {
 	DependencyPath []string
 }
 
-// Model represents the fullscreen DevSecOps TUI state.
+// Model represents the Lazygit/btm style Fullscreen DevSecOps TUI state.
 type Model struct {
 	activeTab       ActiveTab
+	activePane      ActivePane
 	state           ViewState
+	isMaximized     bool
 	progress        ScanProgress
 	startTime       time.Time
 	result          *types.ScanResult
@@ -78,7 +79,9 @@ type Model struct {
 	spinner         spinner.Model
 	progressBar     progress.Model
 	vulnTable       table.Model
-	viewport        viewport.Model
+	reasonVP        viewport.Model
+	chainVP         viewport.Model
+	detailVP        viewport.Model
 	styles          Styles
 	width           int
 	height          int
@@ -122,17 +125,16 @@ func NewModel() *Model {
 	p := progress.New(progress.WithDefaultGradient())
 
 	columns := []table.Column{
-		{Title: "DOMAIN", Width: 10},
 		{Title: "SEVERITY", Width: 12},
-		{Title: "TARGET / PACKAGE", Width: 24},
-		{Title: "ID / RULE", Width: 20},
-		{Title: "REASON FLAGGED", Width: 45},
+		{Title: "TARGET / PACKAGE", Width: 22},
+		{Title: "ID / RULE", Width: 18},
+		{Title: "REASON SUMMARY", Width: 40},
 	}
 
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
-		table.WithHeight(14),
+		table.WithHeight(10),
 	)
 
 	tStyle := table.DefaultStyles()
@@ -147,19 +149,24 @@ func NewModel() *Model {
 		Bold(true)
 	t.SetStyles(tStyle)
 
-	vp := viewport.New(100, 20)
+	rVP := viewport.New(50, 10)
+	cVP := viewport.New(50, 10)
+	dVP := viewport.New(50, 10)
 
 	return &Model{
-		activeTab:   TabVulnerabilities,
-		state:       StateScanning,
-		startTime:   time.Now(),
-		spinner:     s,
+		activeTab:  TabVulnerabilities,
+		activePane: PaneTable,
+		state:      StateScanning,
+		startTime:  time.Now(),
+		spinner:    s,
 		progressBar: p,
-		vulnTable:   t,
-		viewport:    vp,
-		styles:      DefaultStyles(),
-		width:       120,
-		height:      35,
+		vulnTable:  t,
+		reasonVP:   rVP,
+		chainVP:    cVP,
+		detailVP:   dVP,
+		styles:     DefaultStyles(),
+		width:      140,
+		height:     40,
 	}
 }
 
@@ -212,7 +219,7 @@ func ticker() tea.Cmd {
 	})
 }
 
-// Update handles key presses and state transitions.
+// Update handles key presses, window resizing, and state transitions.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -220,8 +227,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.viewport.Width = msg.Width - 4
-		m.viewport.Height = msg.Height - 10
+		m.recalculateViewports()
 		m.updateTableLayout()
 		return m, nil
 	case ProgressMsg:
@@ -320,8 +326,12 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q":
 			return m, tea.Quit
 		case "tab":
-			m.activeTab = (m.activeTab + 1) % 5
-			m.applyFilters()
+			m.activePane = (m.activePane + 1) % 4
+		case "shift+tab":
+			m.activePane = (m.activePane + 3) % 4
+		case "w", "f":
+			m.isMaximized = !m.isMaximized
+			m.recalculateViewports()
 		case "1":
 			m.activeTab = TabVulnerabilities
 			m.applyFilters()
@@ -337,12 +347,6 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "5":
 			m.activeTab = TabDependencyGraph
 			m.applyFilters()
-		case "enter":
-			m.selectedIdx = m.vulnTable.Cursor()
-			if len(m.filteredItems) > 0 && m.selectedIdx >= 0 && m.selectedIdx < len(m.filteredItems) {
-				m.state = StateDetail
-				m.updateDetailViewport()
-			}
 		case "g":
 			m.groupMode = (m.groupMode + 1) % 3
 			m.applyFilters()
@@ -367,21 +371,34 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filterSeverity = ""
 			m.searchQuery = ""
 			m.applyFilters()
-		case "up", "k", "down", "j":
-			var cmd tea.Cmd
-			m.vulnTable, cmd = m.vulnTable.Update(msg)
-			m.selectedIdx = m.vulnTable.Cursor()
-			return m, cmd
-		}
-
-	case StateDetail:
-		switch key {
-		case "esc", "q", "backspace":
-			m.state = StateExplorer
 		case "up", "k":
-			m.viewport.LineUp(1)
+			if m.activePane == PaneTable {
+				var cmd tea.Cmd
+				m.vulnTable, cmd = m.vulnTable.Update(msg)
+				m.selectedIdx = m.vulnTable.Cursor()
+				m.updateSelectedPaneContents()
+				return m, cmd
+			} else if m.activePane == PaneReason {
+				m.reasonVP.LineUp(1)
+			} else if m.activePane == PaneChain {
+				m.chainVP.LineUp(1)
+			} else if m.activePane == PaneDetails {
+				m.detailVP.LineUp(1)
+			}
 		case "down", "j":
-			m.viewport.LineDown(1)
+			if m.activePane == PaneTable {
+				var cmd tea.Cmd
+				m.vulnTable, cmd = m.vulnTable.Update(msg)
+				m.selectedIdx = m.vulnTable.Cursor()
+				m.updateSelectedPaneContents()
+				return m, cmd
+			} else if m.activePane == PaneReason {
+				m.reasonVP.LineDown(1)
+			} else if m.activePane == PaneChain {
+				m.chainVP.LineDown(1)
+			} else if m.activePane == PaneDetails {
+				m.detailVP.LineDown(1)
+			}
 		}
 	}
 
@@ -397,7 +414,7 @@ func (m *Model) applyFilters() {
 func (m *Model) applyFiltersLocked() {
 	var items []TUIFinding
 
-	// 1. Collect findings according to ActiveTab
+	// Collect findings according to ActiveTab
 	switch m.activeTab {
 	case TabVulnerabilities:
 		for _, v := range m.vulns {
@@ -405,7 +422,7 @@ func (m *Model) applyFiltersLocked() {
 			if v.CVEID != "" {
 				cveID = v.CVEID
 			}
-			reason := fmt.Sprintf("Known CVE with CVSS %.1f exposure in dependency chain", v.CVSS)
+			reason := fmt.Sprintf("A vulnerability affects %s (%s). The issue is tracked upstream as %s with CVSS score %.1f. Specially crafted payloads or triggers may result in security compromise.", v.Package, v.Version, cveID, v.CVSS)
 			if v.CVEDescription != "" {
 				reason = v.CVEDescription
 			}
@@ -433,9 +450,9 @@ func (m *Model) applyFiltersLocked() {
 				ID:            string(s.Type),
 				Severity:      "secret",
 				Title:         fmt.Sprintf("Leaked %s at line %d", s.Type, s.LineNumber),
-				Description:   s.LineContent,
-				ReasonFlagged: fmt.Sprintf("Hardcoded secret pattern matched with Shannon entropy %.2f", s.Entropy),
-				Remediation:   "Revoke secret key immediately and remove from source code / git history",
+				Description:   fmt.Sprintf("Hardcoded secret discovered in %s:%d\nMatch: %s", s.FilePath, s.LineNumber, s.Match),
+				ReasonFlagged: fmt.Sprintf("High-entropy secret key pattern matching %s discovered in source code (Shannon Entropy: %.2f)", s.Type, s.Entropy),
+				Remediation:   "Revoke secret key immediately and remove from git commit history",
 				RawSecret:     s,
 			})
 		}
@@ -450,7 +467,7 @@ func (m *Model) applyFiltersLocked() {
 				Severity:      string(iac.Severity),
 				Title:         iac.Title,
 				Description:   iac.Message,
-				ReasonFlagged: fmt.Sprintf("IaC Security Linter Rule %s triggered: %s", iac.RuleID, iac.Message),
+				ReasonFlagged: fmt.Sprintf("IaC Linter Rule %s triggered: %s", iac.RuleID, iac.Message),
 				Remediation:   "Update Dockerfile / GitHub Action workflow according to security best practices",
 				RawIaC:        iac,
 			})
@@ -459,10 +476,10 @@ func (m *Model) applyFiltersLocked() {
 	case TabLicenses:
 		for _, lic := range m.licenseFindings {
 			sev := "low"
-			reason := "Permissive license (MIT/Apache/BSD) safe for commercial distribution"
+			reason := "Permissive license (MIT/Apache/BSD) safe for commercial software distribution"
 			if lic.Category == license.Copyleft {
 				sev = "high"
-				reason = "Copyleft license (GPL/AGPL) poses legal infection risk for commercial software"
+				reason = "Copyleft license (GPL/AGPL) poses legal infection risk requiring source code disclosure"
 			}
 			items = append(items, TUIFinding{
 				Domain:        "LICENSE",
@@ -473,13 +490,12 @@ func (m *Model) applyFiltersLocked() {
 				Title:         fmt.Sprintf("%s (%s)", lic.License, lic.Category),
 				Description:   fmt.Sprintf("Package %s uses %s license", lic.PackageName, lic.License),
 				ReasonFlagged: reason,
-				Remediation:   "Review open source license compliance terms",
+				Remediation:   "Review open source license terms and compliance requirements",
 				RawLicense:    lic,
 			})
 		}
 
 	case TabDependencyGraph:
-		// Convert graph nodes into findings for tree exploration
 		if m.graph != nil {
 			for _, node := range m.graph.Nodes {
 				items = append(items, TUIFinding{
@@ -490,13 +506,13 @@ func (m *Model) applyFiltersLocked() {
 					Severity:      "low",
 					Title:         fmt.Sprintf("Node: %s@%s", node.Name, node.Version),
 					Description:   fmt.Sprintf("Ecosystem: %s | Direct: %v | Depth: %d", node.Ecosystem, node.Direct, node.Depth),
-					ReasonFlagged: fmt.Sprintf("Dependency node in tree with %d vulnerabilities", len(node.Vulnerabilities)),
+					ReasonFlagged: fmt.Sprintf("Dependency graph node with %d vulnerabilities", len(node.Vulnerabilities)),
 				})
 			}
 		}
 	}
 
-	// 2. Apply Severity & Text Search filtering
+	// Severity & Text Search filtering
 	var filtered []TUIFinding
 	search := strings.ToLower(strings.TrimSpace(m.searchQuery))
 
@@ -515,7 +531,7 @@ func (m *Model) applyFiltersLocked() {
 		filtered = append(filtered, item)
 	}
 
-	// 3. Apply Grouping Mode if requested
+	// Grouping Mode
 	if m.groupMode == GroupPackage {
 		filtered = groupFindingsByPackage(filtered)
 	} else if m.groupMode == GroupSeverity {
@@ -527,81 +543,117 @@ func (m *Model) applyFiltersLocked() {
 		m.selectedIdx = 0
 	}
 	m.updateTableLayout()
+	m.updateSelectedPaneContents()
+}
+
+func (m *Model) recalculateViewports() {
+	bodyHeight := m.height - 6
+	if bodyHeight < 10 {
+		bodyHeight = 10
+	}
+
+	topHeight := int(float64(bodyHeight) * 0.48)
+	bottomHeight := bodyHeight - topHeight
+
+	leftWidth := int(float64(m.width) * 0.48)
+	rightWidth := m.width - leftWidth
+
+	if m.isMaximized {
+		leftWidth = m.width
+		rightWidth = m.width
+		topHeight = bodyHeight
+		bottomHeight = bodyHeight
+	}
+
+	m.vulnTable.SetHeight(topHeight - 4)
+
+	m.reasonVP.Width = rightWidth - 4
+	m.reasonVP.Height = topHeight - 3
+
+	m.chainVP.Width = leftWidth - 4
+	m.chainVP.Height = bottomHeight - 3
+
+	m.detailVP.Width = rightWidth - 4
+	m.detailVP.Height = bottomHeight - 3
+
+	m.updateSelectedPaneContents()
 }
 
 func (m *Model) updateTableLayout() {
 	var rows []table.Row
 	for _, item := range m.filteredItems {
-		reason := item.ReasonFlagged
-		if len(reason) > 42 {
-			reason = reason[:39] + "..."
+		reasonSummary := item.ReasonFlagged
+		if len(reasonSummary) > 35 {
+			reasonSummary = reasonSummary[:32] + "..."
 		}
 		rows = append(rows, table.Row{
-			item.Domain,
 			strings.ToUpper(item.Severity),
 			item.Package,
 			item.ID,
-			reason,
+			reasonSummary,
 		})
 	}
 	m.vulnTable.SetRows(rows)
 }
 
-func (m *Model) updateDetailViewport() {
+func (m *Model) updateSelectedPaneContents() {
 	if len(m.filteredItems) == 0 || m.selectedIdx >= len(m.filteredItems) {
+		m.reasonVP.SetContent("No item selected.")
+		m.chainVP.SetContent("No dependency chain available.")
+		m.detailVP.SetContent("No detailed inspection content.")
 		return
 	}
 
 	item := m.filteredItems[m.selectedIdx]
-	var b strings.Builder
 
-	// Header Banner
-	b.WriteString(m.styles.Title.Render(fmt.Sprintf("󰍉 SECURITY FINDING DEEP INSPECTION: %s", item.Package)) + "\n\n")
+	// 1. Reason Viewport Content (Word Wrapped)
+	reasonWrapped := lipgloss.NewStyle().
+		Width(m.reasonVP.Width).
+		Render(item.ReasonFlagged)
+	m.reasonVP.SetContent(reasonWrapped)
 
-	badge := RenderSeverityBadge(item.Severity, m.styles)
-	b.WriteString(fmt.Sprintf("  %-18s %s\n", "Domain:", item.Domain))
-	b.WriteString(fmt.Sprintf("  %-18s %s\n", "Severity:", badge))
-	b.WriteString(fmt.Sprintf("  %-18s %s\n", "Package / Target:", item.Package))
-	if item.Version != "" {
-		b.WriteString(fmt.Sprintf("  %-18s %s\n", "Version:", item.Version))
-	}
-	b.WriteString(fmt.Sprintf("  %-18s %s\n", "ID / Rule:", item.ID))
-	b.WriteString("\n")
-
-	// EXPLICIT REASON FLAGGED SECTION
-	b.WriteString(m.styles.Title.Render("💡 REASON WHY THIS WAS FLAGGED") + "\n")
-	b.WriteString(m.styles.ReasonBox.Render(item.ReasonFlagged) + "\n\n")
-
-	// Description Section
-	b.WriteString(m.styles.Title.Render("󰈔 Full Description & Context") + "\n")
-	b.WriteString(item.Description + "\n\n")
-
-	// Dependency Path Visualizer
+	// 2. Dependency Chain Viewport Content
+	var chainBuf strings.Builder
 	if len(item.DependencyPath) > 0 {
-		b.WriteString(m.styles.Title.Render("󰒍 Dependency Chain Tree Path") + "\n")
 		for i, nodeName := range item.DependencyPath {
-			indent := strings.Repeat("    ", i)
-			prefix := "└── "
+			indent := strings.Repeat("  ", i)
 			if i == 0 {
-				prefix = "󰏖 Root: "
-				b.WriteString(fmt.Sprintf("%s%s%s\n", indent, prefix, m.styles.ChainNode.Render(nodeName)))
+				chainBuf.WriteString(fmt.Sprintf("%s󰏖 Root: %s\n", indent, nodeName))
 			} else if i == len(item.DependencyPath)-1 {
-				b.WriteString(fmt.Sprintf("%s%s%s [VULNERABLE TARGET]\n", indent, prefix, m.styles.ChainTarget.Render(nodeName)))
+				chainBuf.WriteString(fmt.Sprintf("%s└── %s [VULNERABLE TARGET]\n", indent, nodeName))
 			} else {
-				b.WriteString(fmt.Sprintf("%s%s%s\n", indent, prefix, m.styles.ChainTree.Render(nodeName)))
+				chainBuf.WriteString(fmt.Sprintf("%s└── %s\n", indent, nodeName))
 			}
 		}
-		b.WriteString("\n")
+	} else {
+		chainBuf.WriteString(fmt.Sprintf("Target: %s@%s\nNo deep dependency path recorded.", item.Package, item.Version))
 	}
+	m.chainVP.SetContent(chainBuf.String())
 
-	// Remediation Section
+	// 3. Detail Inspection Viewport Content
+	var detailBuf strings.Builder
+	detailBuf.WriteString(fmt.Sprintf("Target Package: %s\n", item.Package))
+	if item.Version != "" {
+		detailBuf.WriteString(fmt.Sprintf("Version: %s\n", item.Version))
+	}
+	detailBuf.WriteString(fmt.Sprintf("ID / Rule: %s\n", item.ID))
+	detailBuf.WriteString(fmt.Sprintf("Severity: %s\n\n", RenderSeverityBadge(item.Severity, m.styles)))
+
+	detailBuf.WriteString("󰈔 Context & Description:\n")
+	descWrapped := lipgloss.NewStyle().
+		Width(m.detailVP.Width).
+		Render(item.Description)
+	detailBuf.WriteString(descWrapped + "\n\n")
+
 	if item.Remediation != "" {
-		b.WriteString(m.styles.Title.Render("🛠️ Recommended Action / Remediation") + "\n")
-		b.WriteString(m.styles.KeyHint.Render(item.Remediation) + "\n\n")
+		detailBuf.WriteString("🛠️ Recommended Action:\n")
+		remWrapped := lipgloss.NewStyle().
+			Width(m.detailVP.Width).
+			Render(item.Remediation)
+		detailBuf.WriteString(remWrapped + "\n")
 	}
 
-	b.WriteString(m.styles.Subtitle.Render("Press [Esc] or [q] to return to Main Explorer"))
-	m.viewport.SetContent(b.String())
+	m.detailVP.SetContent(detailBuf.String())
 }
 
 func (m *Model) executeExport(fmtName string) tea.Cmd {
@@ -642,14 +694,14 @@ func (m *Model) executeExport(fmtName string) tea.Cmd {
 	if exportErr != nil {
 		m.exportStatus = fmt.Sprintf("Export failed: %v", exportErr)
 	} else {
-		m.exportStatus = fmt.Sprintf("Successfully exported scan findings to %s", fileName)
+		m.exportStatus = fmt.Sprintf("Exported findings to %s", fileName)
 		m.state = StateExplorer
 	}
 
 	return nil
 }
 
-// View renders the fullscreen TUI screen
+// View renders the Lazygit/btm style Fullscreen DevSecOps Multi-Pane TUI
 func (m *Model) View() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -662,9 +714,7 @@ func (m *Model) View() string {
 	case StateScanning:
 		return m.renderScanning()
 	case StateExplorer:
-		return m.renderExplorer()
-	case StateDetail:
-		return m.renderDetail()
+		return m.renderLazygitExplorer()
 	case StateExportModal:
 		return m.renderExportModal()
 	default:
@@ -704,7 +754,7 @@ func (m *Model) renderScanning() string {
 	return strings.Join(sections, "\n")
 }
 
-func (m *Model) renderExplorer() string {
+func (m *Model) renderLazygitExplorer() string {
 	var sections []string
 
 	// 1. Top Header Banner
@@ -715,7 +765,7 @@ func (m *Model) renderExplorer() string {
 		vulnCount = len(m.vulns)
 	}
 
-	headerText := fmt.Sprintf("🛡️ VIGIL DEVSECOPS DASHBOARD | %d VULNS | %d SECRETS | %d IAC RISKS",
+	headerText := fmt.Sprintf("🛡️ VIGIL LAZYGIT DEVSECOPS DASHBOARD | %d VULNS | %d SECRETS | %d IAC RISKS",
 		vulnCount, len(m.secretFindings), len(m.iacIssues))
 	sections = append(sections, m.styles.Header.Render(headerText))
 
@@ -752,19 +802,52 @@ func (m *Model) renderExplorer() string {
 		searchStr = fmt.Sprintf("%q █", m.searchQuery)
 	}
 
-	filterBar := fmt.Sprintf("Group: [%s] | Filter: [%s] | Search: %s | Showing %d items",
+	filterBar := fmt.Sprintf("Group: [%s] | Filter: [%s] | Search: %s | Active Pane: [%d] | Maximize: [%v]",
 		m.styles.KeyHint.Render(groupStr),
 		m.styles.KeyHint.Render(filterStr),
 		m.styles.SearchPrompt.Render(searchStr),
-		len(m.filteredItems),
+		m.activePane+1,
+		m.isMaximized,
 	)
-	sections = append(sections, m.styles.FilterBar.Render(filterBar), "")
+	sections = append(sections, m.styles.FilterBar.Render(filterBar))
 
-	// 4. Main Table View
-	if len(m.filteredItems) > 0 {
-		sections = append(sections, m.vulnTable.View())
+	// 4. Multi-Pane Lazygit / btm Grid Layout
+	bodyHeight := m.height - 6
+	if bodyHeight < 10 {
+		bodyHeight = 10
+	}
+
+	topHeight := int(float64(bodyHeight) * 0.48)
+	bottomHeight := bodyHeight - topHeight
+
+	leftWidth := int(float64(m.width) * 0.48)
+	rightWidth := m.width - leftWidth
+
+	if m.isMaximized {
+		var activePaneBox string
+		switch m.activePane {
+		case PaneTable:
+			activePaneBox = RenderPaneBorder("󰍜 [1] Security Findings Table (Maximized)", m.vulnTable.View(), m.width, bodyHeight, true)
+		case PaneReason:
+			activePaneBox = RenderPaneBorder("💡 [2] Reason Why Flagged (Maximized)", m.reasonVP.View(), m.width, bodyHeight, true)
+		case PaneChain:
+			activePaneBox = RenderPaneBorder("󰒍 [3] Dependency Tree Path (Maximized)", m.chainVP.View(), m.width, bodyHeight, true)
+		case PaneDetails:
+			activePaneBox = RenderPaneBorder("󰈔 [4] Detailed Inspection (Maximized)", m.detailVP.View(), m.width, bodyHeight, true)
+		}
+		sections = append(sections, activePaneBox)
 	} else {
-		sections = append(sections, m.styles.Subtitle.Render("  No findings match current view criteria."))
+		// Render 4-Pane Grid
+		pane1 := RenderPaneBorder("󰍜 [1] Security Findings", m.vulnTable.View(), leftWidth, topHeight, m.activePane == PaneTable)
+		pane2 := RenderPaneBorder("💡 [2] Reason Why Flagged", m.reasonVP.View(), rightWidth, topHeight, m.activePane == PaneReason)
+		topRow := lipgloss.JoinHorizontal(lipgloss.Top, pane1, pane2)
+
+		pane3 := RenderPaneBorder("󰒍 [3] Dependency Tree Path", m.chainVP.View(), leftWidth, bottomHeight, m.activePane == PaneChain)
+		pane4 := RenderPaneBorder("󰈔 [4] Detailed Inspection", m.detailVP.View(), rightWidth, bottomHeight, m.activePane == PaneDetails)
+		bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, pane3, pane4)
+
+		grid := lipgloss.JoinVertical(lipgloss.Left, topRow, bottomRow)
+		sections = append(sections, grid)
 	}
 
 	// 5. Status / Footer Bar
@@ -773,18 +856,10 @@ func (m *Model) renderExplorer() string {
 	}
 
 	footer := m.styles.StatusBar.Render(
-		"[1-5/Tab] View | [c/h/m/l] Filter | [/] Search | [g] Group | [Enter] Detail | [e] Export | [q] Quit",
+		"[Tab] Focus Pane | [w/f] Maximize | [↑/↓/k/j] Navigate/Scroll | [1-5] View | [/] Search | [g] Group | [e] Export | [q] Quit",
 	)
-	sections = append(sections, "", footer)
+	sections = append(sections, footer)
 
-	return strings.Join(sections, "\n")
-}
-
-func (m *Model) renderDetail() string {
-	var sections []string
-	header := m.styles.Header.Render("󰍉 VIGIL DEVSECOPS DEEP INSPECTOR")
-	sections = append(sections, header, "")
-	sections = append(sections, m.viewport.View())
 	return strings.Join(sections, "\n")
 }
 
@@ -817,7 +892,7 @@ func groupFindingsByPackage(items []TUIFinding) []TUIFinding {
 		headerFinding := TUIFinding{
 			Domain:        list[0].Domain,
 			Package:       pkg,
-			ID:            fmt.Sprintf("(%d findings)", len(list)),
+			ID:            fmt.Sprintf("(%d items)", len(list)),
 			Severity:      list[0].Severity,
 			ReasonFlagged: fmt.Sprintf("Package group containing %d security items", len(list)),
 		}
