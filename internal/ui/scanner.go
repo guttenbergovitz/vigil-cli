@@ -569,16 +569,16 @@ func (m *Model) recalculateViewports() {
 		bottomHeight = bodyHeight
 	}
 
-	// Calculate dynamic table column widths fitting leftWidth exactly with 3 clean columns
-	tableInnerWidth := leftWidth - 6
-	if tableInnerWidth < 25 {
-		tableInnerWidth = 25
+	// Calculate dynamic table column widths fitting leftWidth exactly (subtracting 10 for borders and cell padding)
+	tableInnerWidth := leftWidth - 10
+	if tableInnerWidth < 20 {
+		tableInnerWidth = 20
 	}
 	sevColWidth := 10
 	targetColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.55)
 	idColWidth := tableInnerWidth - sevColWidth - targetColWidth
-	if idColWidth < 10 {
-		idColWidth = 10
+	if idColWidth < 8 {
+		idColWidth = 8
 	}
 
 	m.vulnTable.SetColumns([]table.Column{
@@ -755,13 +755,16 @@ func (m *Model) renderScanning() string {
 		availWidth = 20
 	}
 
-	// Calculate dynamic table column widths for scanning view
-	scanTableInnerWidth := availWidth - 6
+	// Calculate dynamic table column widths for scanning view (subtracting 12 for outer box border & cell padding)
+	scanTableInnerWidth := availWidth - 12
+	if scanTableInnerWidth < 20 {
+		scanTableInnerWidth = 20
+	}
 	sevColWidth := 10
 	targetColWidth := int(float64(scanTableInnerWidth-sevColWidth) * 0.55)
 	idColWidth := scanTableInnerWidth - sevColWidth - targetColWidth
-	if idColWidth < 10 {
-		idColWidth = 10
+	if idColWidth < 8 {
+		idColWidth = 8
 	}
 
 	m.vulnTable.SetColumns([]table.Column{

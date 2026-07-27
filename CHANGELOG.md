@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-07-27
+
+### Fixed
+
+- **Subtract Cell Padding Margins in Table Column Width Calculations**
+  - Accounted for internal cell padding added by `charmbracelet/bubbles/table` (`-10` in grid views, `-12` in scanning view).
+  - Ensured table horizontal rule lines `─────` fit strictly within box inner width, completely eliminating `│────│` and `│──` line-wrapping visual artifacts.
+
 ## [1.4.5] - 2026-07-27
 
 ### Fixed
