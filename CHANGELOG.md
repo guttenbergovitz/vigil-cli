@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-07-27
+
+### Fixed
+
+- **Boxed Fullscreen DevSecOps Scanning State**
+  - Render scanning progress view (`StateScanning`) in a clean, pixel-perfect boxed panel spanning full screen.
+  - Dynamically calculate scanning stream table column widths to eliminate any terminal line-wrapping during live scan execution.
+
 ## [1.4.3] - 2026-07-27
 
 ### Fixed

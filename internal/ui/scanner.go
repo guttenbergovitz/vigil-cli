@@ -758,33 +758,69 @@ func (m *Model) View() string {
 
 func (m *Model) renderScanning() string {
 	var sections []string
-	header := m.spinner.View() + " " + m.styles.Header.Render("Vigil DevSecOps Full-Spectrum Scanner")
-	sections = append(sections, header, "")
+	header := m.styles.Header.Render(fmt.Sprintf("🛡️ VIGIL DEVSECOPS SCANNER %s", m.spinner.View()))
+	sections = append(sections, header)
 
+	bodyHeight := m.height - 4
+	if bodyHeight < 10 {
+		bodyHeight = 10
+	}
+
+	availWidth := m.width - 2
+	if availWidth < 20 {
+		availWidth = 20
+	}
+
+	// Calculate dynamic table column widths for scanning view
+	scanTableInnerWidth := availWidth - 6
+	sevColWidth := 10
+	targetColWidth := int(float64(scanTableInnerWidth-sevColWidth) * 0.35)
+	idColWidth := int(float64(scanTableInnerWidth-sevColWidth) * 0.30)
+	reasonColWidth := scanTableInnerWidth - sevColWidth - targetColWidth - idColWidth
+	if reasonColWidth < 10 {
+		reasonColWidth = 10
+	}
+	m.tableReasonColWidth = reasonColWidth
+
+	m.vulnTable.SetColumns([]table.Column{
+		{Title: "SEVERITY", Width: sevColWidth},
+		{Title: "TARGET", Width: targetColWidth},
+		{Title: "ID / RULE", Width: idColWidth},
+		{Title: "REASON", Width: reasonColWidth},
+	})
+	m.vulnTable.SetWidth(availWidth - 4)
+	m.vulnTable.SetHeight(bodyHeight - 8)
+
+	var scanBody []string
 	if m.progress.Total > 0 {
 		percent := float64(m.progress.Current) / float64(m.progress.Total)
 		if percent > 1.0 {
 			percent = 1.0
 		}
-		width := 40
-		filled := int(percent * float64(width))
-		bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-		progressView := fmt.Sprintf("[%s] %d%% (%d/%d packages)", bar, int(percent*100), m.progress.Current, m.progress.Total)
-		sections = append(sections, progressView)
+		barWidth := 30
+		filled := int(percent * float64(barWidth))
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+		scanBody = append(scanBody, fmt.Sprintf("[%s] %d%% (%d/%d packages)", bar, int(percent*100), m.progress.Current, m.progress.Total))
 	}
 
 	if m.progress.CurrentPkg != "" {
-		sections = append(sections, fmt.Sprintf("Scanning: %s", m.styles.Subtitle.Render(m.progress.CurrentPkg)))
+		scanBody = append(scanBody, fmt.Sprintf("Scanning Target: %s", m.styles.Subtitle.Render(m.progress.CurrentPkg)))
 	}
 
 	elapsed := time.Since(m.startTime).Seconds()
-	sections = append(sections, fmt.Sprintf("󰥔  Elapsed: %.0fs | Found: %d vulnerabilities", elapsed, len(m.vulns)))
+	scanBody = append(scanBody, fmt.Sprintf("󰥔 Elapsed: %.0fs | Found Vulnerabilities: %d", elapsed, len(m.vulns)))
 
 	if len(m.vulns) > 0 {
-		sections = append(sections, "", m.styles.Title.Render("󰍜 Vulnerabilities Stream:"), m.vulnTable.View())
+		scanBody = append(scanBody, "", m.styles.Title.Render("󰍜 Live Vulnerabilities Stream:"), m.vulnTable.View())
 	}
 
-	sections = append(sections, "", m.styles.Subtitle.Render("Press q to cancel"))
+	boxContent := strings.Join(scanBody, "\n")
+	scanPaneBox := RenderPaneBorder("󰥔 Full-Spectrum Security Scan in Progress", boxContent, availWidth, bodyHeight, true)
+	sections = append(sections, scanPaneBox)
+
+	footer := m.styles.StatusBar.Render("Press [q] to cancel scanning")
+	sections = append(sections, footer)
+
 	return strings.Join(sections, "\n")
 }
 
