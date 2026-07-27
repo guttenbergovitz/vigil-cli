@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/guttenbergovitz/vigil-cli/internal/cli"
+	"github.com/guttenbergovitz/vigil-cli/internal/version"
 )
 
 func main() {
@@ -29,7 +30,7 @@ func run() error {
 	case "ci":
 		return cli.CI(os.Args[2:])
 	case "version":
-		fmt.Println("vigil version 0.1.0")
+		fmt.Printf("vigil %s\n", version.GetFull())
 		return nil
 	default:
 		return fmt.Errorf("unknown command: %s", cmd)
