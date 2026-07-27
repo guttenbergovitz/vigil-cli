@@ -23,8 +23,8 @@ type ActivePane int
 const (
 	PaneTable ActivePane = iota
 	PaneReason
-	PaneChain
 	PaneDetails
+	PaneChain
 )
 
 // GroupMode represents grouping in the TUI lists.

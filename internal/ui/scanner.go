@@ -128,9 +128,11 @@ func NewModel() *Model {
 	p := progress.New(progress.WithDefaultGradient())
 
 	columns := []table.Column{
-		{Title: "SEVERITY", Width: 10},
+		{Title: "DOMAIN", Width: 10},
+		{Title: "SEVERITY", Width: 12},
 		{Title: "TARGET / PACKAGE", Width: 25},
 		{Title: "ID / RULE", Width: 20},
+		{Title: "REASON SUMMARY", Width: 35},
 	}
 
 	t := table.New(
@@ -558,51 +560,60 @@ func (m *Model) recalculateViewports() {
 	bottomHeight := bodyHeight - topHeight
 
 	availWidth := m.width - 2
-	if availWidth < 20 {
-		availWidth = 20
+	if availWidth < 30 {
+		availWidth = 30
 	}
-	leftWidth := availWidth / 2
-	rightWidth := availWidth - leftWidth
+
+	wReason := int(float64(availWidth) * 0.25)
+	wDetail := int(float64(availWidth) * 0.50)
+	wChain := availWidth - wReason - wDetail
 
 	if m.isMaximized {
-		leftWidth = m.width - 2
-		rightWidth = m.width - 2
 		topHeight = bodyHeight
 		bottomHeight = bodyHeight
+		wReason = m.width - 2
+		wDetail = m.width - 2
+		wChain = m.width - 2
 	}
 
-	// Calculate dynamic table column widths fitting leftWidth exactly (SEVERITY: 10, TARGET: 40%, ID: 60%)
-	tableInnerWidth := leftWidth - 10
-	if tableInnerWidth < 20 {
-		tableInnerWidth = 20
+	// Calculate rich 5-column table widths spanning full width across the top
+	tableInnerWidth := availWidth - 10
+	if tableInnerWidth < 30 {
+		tableInnerWidth = 30
 	}
-	sevColWidth := 10
-	targetColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.40)
-	idColWidth := tableInnerWidth - sevColWidth - targetColWidth
-	if idColWidth < 12 {
-		idColWidth = 12
+	domainColWidth := 10
+	sevColWidth := 12
+	remWidth := tableInnerWidth - domainColWidth - sevColWidth
+	targetColWidth := int(float64(remWidth) * 0.25)
+	idColWidth := int(float64(remWidth) * 0.25)
+	reasonColWidth := remWidth - targetColWidth - idColWidth
+	if reasonColWidth < 10 {
+		reasonColWidth = 10
 	}
 
 	m.tableTargetColWidth = targetColWidth
 	m.tableIDColWidth = idColWidth
+	m.tableReasonColWidth = reasonColWidth
 
 	m.vulnTable.SetColumns([]table.Column{
+		{Title: "DOMAIN", Width: domainColWidth},
 		{Title: "SEVERITY", Width: sevColWidth},
 		{Title: "TARGET / PACKAGE", Width: targetColWidth},
 		{Title: "ID / RULE", Width: idColWidth},
+		{Title: "REASON SUMMARY", Width: reasonColWidth},
 	})
 
-	m.vulnTable.SetWidth(leftWidth - 4)
+	m.vulnTable.SetWidth(availWidth - 4)
 	m.vulnTable.SetHeight(topHeight - 3)
 
-	m.reasonVP.Width = rightWidth - 4
-	m.reasonVP.Height = topHeight - 3
+	m.reasonVP.Width = wReason - 4
+	m.reasonVP.Height = bottomHeight - 3
 
-	m.chainVP.Width = leftWidth - 4
-	m.chainVP.Height = bottomHeight - 3
-
-	m.detailVP.Width = rightWidth - 4
+	m.detailVP.Width = wDetail - 4
 	m.detailVP.Height = bottomHeight - 3
+
+	m.chainVP.Width = wChain - 4
+	m.chainVP.Height = bottomHeight - 3
 
 	m.updateSelectedPaneContents()
 }
@@ -615,6 +626,10 @@ func (m *Model) updateTableLayout() {
 	idWidth := m.tableIDColWidth
 	if idWidth <= 0 {
 		idWidth = 20
+	}
+	reasonWidth := m.tableReasonColWidth
+	if reasonWidth <= 0 {
+		reasonWidth = 30
 	}
 
 	var rows []table.Row
@@ -633,10 +648,19 @@ func (m *Model) updateTableLayout() {
 			}
 		}
 
+		reasonSummary := item.ReasonFlagged
+		if len(reasonSummary) > reasonWidth {
+			if reasonWidth > 3 {
+				reasonSummary = reasonSummary[:reasonWidth-3] + "..."
+			}
+		}
+
 		rows = append(rows, table.Row{
+			item.Domain,
 			strings.ToUpper(item.Severity),
 			pkgStr,
 			idStr,
+			reasonSummary,
 		})
 	}
 	m.vulnTable.SetRows(rows)
@@ -783,22 +807,30 @@ func (m *Model) renderScanning() string {
 		availWidth = 20
 	}
 
-	// Calculate dynamic table column widths for scanning view (subtracting 12 for outer box border & cell padding)
-	scanTableInnerWidth := availWidth - 12
-	if scanTableInnerWidth < 20 {
-		scanTableInnerWidth = 20
+	// Calculate dynamic table column widths for scanning view (subtracting 14 for outer box border & cell padding)
+	scanTableInnerWidth := availWidth - 14
+	if scanTableInnerWidth < 30 {
+		scanTableInnerWidth = 30
 	}
-	sevColWidth := 10
-	targetColWidth := int(float64(scanTableInnerWidth-sevColWidth) * 0.55)
-	idColWidth := scanTableInnerWidth - sevColWidth - targetColWidth
-	if idColWidth < 8 {
-		idColWidth = 8
+	domainColWidth := 10
+	sevColWidth := 12
+	remWidth := scanTableInnerWidth - domainColWidth - sevColWidth
+	targetColWidth := int(float64(remWidth) * 0.25)
+	idColWidth := int(float64(remWidth) * 0.25)
+	reasonColWidth := remWidth - targetColWidth - idColWidth
+	if reasonColWidth < 10 {
+		reasonColWidth = 10
 	}
+	m.tableTargetColWidth = targetColWidth
+	m.tableIDColWidth = idColWidth
+	m.tableReasonColWidth = reasonColWidth
 
 	m.vulnTable.SetColumns([]table.Column{
+		{Title: "DOMAIN", Width: domainColWidth},
 		{Title: "SEVERITY", Width: sevColWidth},
-		{Title: "TARGET", Width: targetColWidth},
+		{Title: "TARGET / PACKAGE", Width: targetColWidth},
 		{Title: "ID / RULE", Width: idColWidth},
+		{Title: "REASON SUMMARY", Width: reasonColWidth},
 	})
 	m.vulnTable.SetWidth(availWidth - 4)
 	m.vulnTable.SetHeight(bodyHeight - 8)
@@ -903,11 +935,13 @@ func (m *Model) renderLazygitExplorer() string {
 	bottomHeight := bodyHeight - topHeight
 
 	availWidth := m.width - 2
-	if availWidth < 20 {
-		availWidth = 20
+	if availWidth < 30 {
+		availWidth = 30
 	}
-	leftWidth := availWidth / 2
-	rightWidth := availWidth - leftWidth
+
+	wReason := int(float64(availWidth) * 0.25)
+	wDetail := int(float64(availWidth) * 0.50)
+	wChain := availWidth - wReason - wDetail
 
 	if m.isMaximized {
 		var activePaneBox string
@@ -916,21 +950,21 @@ func (m *Model) renderLazygitExplorer() string {
 			activePaneBox = RenderPaneBorder("󰍜 [1] Security Findings Table (Maximized)", m.vulnTable.View(), m.width-2, bodyHeight, true)
 		case PaneReason:
 			activePaneBox = RenderPaneBorder("💡 [2] Reason Why Flagged (Maximized)", m.reasonVP.View(), m.width-2, bodyHeight, true)
-		case PaneChain:
-			activePaneBox = RenderPaneBorder("󰒍 [3] Dependency Tree Path (Maximized)", m.chainVP.View(), m.width-2, bodyHeight, true)
 		case PaneDetails:
-			activePaneBox = RenderPaneBorder("󰈔 [4] Detailed Inspection (Maximized)", m.detailVP.View(), m.width-2, bodyHeight, true)
+			activePaneBox = RenderPaneBorder("󰈔 [3] Detailed Inspection (Maximized)", m.detailVP.View(), m.width-2, bodyHeight, true)
+		case PaneChain:
+			activePaneBox = RenderPaneBorder("󰒍 [4] Dependency Tree Path (Maximized)", m.chainVP.View(), m.width-2, bodyHeight, true)
 		}
 		sections = append(sections, activePaneBox)
 	} else {
-		// Render 4-Pane Grid
-		pane1 := RenderPaneBorder("󰍜 [1] Security Findings", m.vulnTable.View(), leftWidth, topHeight, m.activePane == PaneTable)
-		pane2 := RenderPaneBorder("💡 [2] Reason Why Flagged", m.reasonVP.View(), rightWidth, topHeight, m.activePane == PaneReason)
-		topRow := lipgloss.JoinHorizontal(lipgloss.Top, pane1, pane2)
+		// Top Full-Width Table Pane
+		topRow := RenderPaneBorder("󰍜 [1] Security Findings Table", m.vulnTable.View(), availWidth, topHeight, m.activePane == PaneTable)
 
-		pane3 := RenderPaneBorder("󰒍 [3] Dependency Tree Path", m.chainVP.View(), leftWidth, bottomHeight, m.activePane == PaneChain)
-		pane4 := RenderPaneBorder("󰈔 [4] Detailed Inspection", m.detailVP.View(), rightWidth, bottomHeight, m.activePane == PaneDetails)
-		bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, pane3, pane4)
+		// Bottom 3-Column Panes (25% Reason, 50% Details, 25% Chain Graph)
+		pReason := RenderPaneBorder("💡 [2] Reason Why Flagged", m.reasonVP.View(), wReason, bottomHeight, m.activePane == PaneReason)
+		pDetail := RenderPaneBorder("󰈔 [3] Detailed Inspection", m.detailVP.View(), wDetail, bottomHeight, m.activePane == PaneDetails)
+		pChain := RenderPaneBorder("󰒍 [4] Dependency Tree Path", m.chainVP.View(), wChain, bottomHeight, m.activePane == PaneChain)
+		bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, pReason, pDetail, pChain)
 
 		grid := lipgloss.JoinVertical(lipgloss.Left, topRow, bottomRow)
 		sections = append(sections, grid)
