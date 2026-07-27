@@ -205,6 +205,8 @@ const (
 	CargoLock       LockFileType = "cargo"
 	ComposerLock    LockFileType = "composer"
 	GoModLock       LockFileType = "gomod"
+	PomXml          LockFileType = "pomxml"
+	GradleLock      LockFileType = "gradlelock"
 )
 
 // Ecosystem maps a lock file type to its target package ecosystem.
@@ -218,6 +220,8 @@ func (t LockFileType) Ecosystem() types.Ecosystem {
 		return types.EcosystemPackagist
 	case GoModLock:
 		return types.EcosystemGo
+	case PomXml, GradleLock:
+		return types.EcosystemMaven
 	default:
 		return types.EcosystemNPM
 	}
@@ -230,6 +234,8 @@ func FindLockFile(dir string) (string, LockFileType, error) {
 		name string
 		typ  LockFileType
 	}{
+		{"pom.xml", PomXml},
+		{"gradle.lockfile", GradleLock},
 		{"uv.lock", UVLock},
 		{"poetry.lock", PoetryLock},
 		{"Pipfile.lock", PipfileLock},
@@ -249,7 +255,7 @@ func FindLockFile(dir string) (string, LockFileType, error) {
 		}
 	}
 
-	return "", "", errors.New("no supported lock file found (uv.lock, poetry.lock, Pipfile.lock, requirements.txt, package-lock.json, yarn.lock, pnpm-lock.yaml, Cargo.lock, composer.lock, go.mod)")
+	return "", "", errors.New("no supported lock file found (pom.xml, gradle.lockfile, uv.lock, poetry.lock, Pipfile.lock, requirements.txt, package-lock.json, yarn.lock, pnpm-lock.yaml, Cargo.lock, composer.lock, go.mod)")
 }
 
 // ParseLockFile dispatches to the correct parser based on lock file type.
@@ -275,6 +281,10 @@ func ParseLockFile(r io.Reader, typ LockFileType) (*Dependencies, error) {
 		return ParseComposerLock(r)
 	case GoModLock:
 		return ParseGoMod(r)
+	case PomXml:
+		return ParsePomXml(r)
+	case GradleLock:
+		return ParseGradleLockfile(r)
 	default:
 		return nil, fmt.Errorf("unknown or unsupported lock file type: %s", typ)
 	}

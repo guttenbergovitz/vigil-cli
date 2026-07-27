@@ -145,6 +145,28 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 			}
 			return nil, fmt.Errorf("failed to parse go.mod: %w", err)
 		}
+	case lockfile.PomXml:
+		var deps *lockfile.Dependencies
+		deps, err = lockfile.ParsePomXml(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse pom.xml: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse pom.xml: %w", err)
+		}
+		graph = buildGraphFromDeps(deps, lockType.Ecosystem())
+	case lockfile.GradleLock:
+		var deps *lockfile.Dependencies
+		deps, err = lockfile.ParseGradleLockfile(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse gradle.lockfile: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse gradle.lockfile: %w", err)
+		}
+		graph = buildGraphFromDeps(deps, lockType.Ecosystem())
 	default:
 		return nil, fmt.Errorf("unsupported lock file type: %s", lockType)
 	}

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-27
+
+### Added
+
+- **Java Ecosystem Support (Maven & Gradle)** (ADR 010)
+  - Added support for Maven `pom.xml` dependency parsing with property `${property.name}` resolution
+  - Added support for Gradle `gradle.lockfile` dependency resolution
+  - Added `EcosystemMaven` (`"Maven"`) with `pkg:maven/{groupId}/{artifactId}@{version}` PURL mapping
+
 ## [1.2.0] - 2026-07-27
 
 ### Added
