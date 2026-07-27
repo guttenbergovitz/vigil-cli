@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-27
+
+### Added
+
+- **Lazygit & Bottom (`btm`) Style Multi-Pane Grid Dashboard**
+  - 4-Pane Grid Layout: `[1] Security Findings Table`, `[2] Reason Why Flagged`, `[3] Dependency Tree Path`, `[4] Detailed Inspection`
+  - Active Pane Focus cycling (`[Tab]` / `[Shift+Tab]`) with highlighted borders
+  - Expandable/Collapsible Window Maximization (`[w]` or `[f]`) to maximize focused pane to 100% full screen
+  - Dynamic Terminal Window Resize & Automatic Word Wrapping matching exact terminal dimensions (`m.width`, `m.height`)
+
 ## [1.4.0] - 2026-07-27
 
 ### Added

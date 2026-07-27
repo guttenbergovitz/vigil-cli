@@ -181,3 +181,33 @@ func RenderSeverityBadge(sev string, s Styles) string {
 		return s.BadgeUnknown.Render("UNKNOWN")
 	}
 }
+
+// RenderPaneBorder creates a dynamically sized panel box with active/inactive highlights and title.
+func RenderPaneBorder(title string, content string, width, height int, isActive bool) string {
+	if width < 10 {
+		width = 10
+	}
+	if height < 3 {
+		height = 3
+	}
+
+	borderColor := "#6272A4"
+	titleColor := "#8BE9FD"
+	if isActive {
+		borderColor = "#BD93F9"
+		titleColor = "#50FA7B"
+	}
+
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(borderColor)).
+		Width(width - 2).
+		Height(height - 2)
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(titleColor))
+
+	header := titleStyle.Render(" " + title + " ")
+	return boxStyle.Render(header + "\n" + content)
+}
