@@ -157,7 +157,7 @@ func NewModel() *Model {
 	cVP := viewport.New(50, 10)
 	dVP := viewport.New(50, 10)
 
-	return &Model{
+	m := &Model{
 		activeTab:  TabVulnerabilities,
 		activePane: PaneTable,
 		state:      StateScanning,
@@ -172,6 +172,8 @@ func NewModel() *Model {
 		width:      140,
 		height:     40,
 	}
+	m.recalculateViewports()
+	return m
 }
 
 // SetProgress updates scan progress state.
@@ -625,6 +627,7 @@ func (m *Model) recalculateViewports() {
 	m.chainVP.Width = wChain - 4
 	m.chainVP.Height = bottomHeight - 3
 
+	m.updateTableLayout()
 	m.updateSelectedPaneContents()
 }
 

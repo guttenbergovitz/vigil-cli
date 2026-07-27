@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-07-27
+
+### Fixed
+
+- **Initialize Column Widths in `NewModel()` & Auto-Sync Table Layout**
+  - Executed `recalculateViewports()` directly inside `NewModel()` so column widths (`tableReasonColWidth`, `tableTargetColWidth`, `tableIDColWidth`) are initialized immediately upon TUI startup.
+  - Automatically triggered `updateTableLayout()` inside `recalculateViewports()` so table rows are re-generated for current terminal dimensions instantly without needing window zoom resize workarounds.
+
 ## [1.5.2] - 2026-07-27
 
 ### Fixed
