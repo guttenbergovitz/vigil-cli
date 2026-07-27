@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-07-27
+
+### Fixed
+
+- **Reset Item Selection and Table Cursor on Tab Navigation**
+  - Reset `selectedIdx = 0` and table cursor to position `0` whenever switching tabs (`[1-5]`).
+  - Automatically populate detailed inspection, reason why flagged, and dependency tree path for item #0 immediately upon switching tabs.
+
 ## [1.5.0] - 2026-07-27
 
 ### Added
