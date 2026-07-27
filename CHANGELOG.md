@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-07-27
+
+### Fixed
+
+- **Fix Fullscreen Layout Clipping & Sticky Top Header Toolbar**
+  - Adjusted grid dimension calculations (`availWidth = m.width - 2`, `bodyHeight = m.height - 4`) so horizontal wrapping never occurs, ensuring top header toolbar is always visible.
+  - Ensured scanning progress view (`StateScanning`) renders in fullscreen AltScreen mode from launch.
+
 ## [1.4.1] - 2026-07-27
 
 ### Added

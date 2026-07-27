@@ -547,25 +547,30 @@ func (m *Model) applyFiltersLocked() {
 }
 
 func (m *Model) recalculateViewports() {
-	bodyHeight := m.height - 6
-	if bodyHeight < 10 {
-		bodyHeight = 10
+	bodyHeight := m.height - 4
+	if bodyHeight < 8 {
+		bodyHeight = 8
 	}
 
-	topHeight := int(float64(bodyHeight) * 0.48)
+	topHeight := bodyHeight / 2
 	bottomHeight := bodyHeight - topHeight
 
-	leftWidth := int(float64(m.width) * 0.48)
-	rightWidth := m.width - leftWidth
+	availWidth := m.width - 2
+	if availWidth < 20 {
+		availWidth = 20
+	}
+	leftWidth := availWidth / 2
+	rightWidth := availWidth - leftWidth
 
 	if m.isMaximized {
-		leftWidth = m.width
-		rightWidth = m.width
+		leftWidth = m.width - 2
+		rightWidth = m.width - 2
 		topHeight = bodyHeight
 		bottomHeight = bodyHeight
 	}
 
-	m.vulnTable.SetHeight(topHeight - 4)
+	m.vulnTable.SetWidth(leftWidth - 4)
+	m.vulnTable.SetHeight(topHeight - 3)
 
 	m.reasonVP.Width = rightWidth - 4
 	m.reasonVP.Height = topHeight - 3
@@ -812,28 +817,32 @@ func (m *Model) renderLazygitExplorer() string {
 	sections = append(sections, m.styles.FilterBar.Render(filterBar))
 
 	// 4. Multi-Pane Lazygit / btm Grid Layout
-	bodyHeight := m.height - 6
-	if bodyHeight < 10 {
-		bodyHeight = 10
+	bodyHeight := m.height - 4
+	if bodyHeight < 8 {
+		bodyHeight = 8
 	}
 
-	topHeight := int(float64(bodyHeight) * 0.48)
+	topHeight := bodyHeight / 2
 	bottomHeight := bodyHeight - topHeight
 
-	leftWidth := int(float64(m.width) * 0.48)
-	rightWidth := m.width - leftWidth
+	availWidth := m.width - 2
+	if availWidth < 20 {
+		availWidth = 20
+	}
+	leftWidth := availWidth / 2
+	rightWidth := availWidth - leftWidth
 
 	if m.isMaximized {
 		var activePaneBox string
 		switch m.activePane {
 		case PaneTable:
-			activePaneBox = RenderPaneBorder("󰍜 [1] Security Findings Table (Maximized)", m.vulnTable.View(), m.width, bodyHeight, true)
+			activePaneBox = RenderPaneBorder("󰍜 [1] Security Findings Table (Maximized)", m.vulnTable.View(), m.width-2, bodyHeight, true)
 		case PaneReason:
-			activePaneBox = RenderPaneBorder("💡 [2] Reason Why Flagged (Maximized)", m.reasonVP.View(), m.width, bodyHeight, true)
+			activePaneBox = RenderPaneBorder("💡 [2] Reason Why Flagged (Maximized)", m.reasonVP.View(), m.width-2, bodyHeight, true)
 		case PaneChain:
-			activePaneBox = RenderPaneBorder("󰒍 [3] Dependency Tree Path (Maximized)", m.chainVP.View(), m.width, bodyHeight, true)
+			activePaneBox = RenderPaneBorder("󰒍 [3] Dependency Tree Path (Maximized)", m.chainVP.View(), m.width-2, bodyHeight, true)
 		case PaneDetails:
-			activePaneBox = RenderPaneBorder("󰈔 [4] Detailed Inspection (Maximized)", m.detailVP.View(), m.width, bodyHeight, true)
+			activePaneBox = RenderPaneBorder("󰈔 [4] Detailed Inspection (Maximized)", m.detailVP.View(), m.width-2, bodyHeight, true)
 		}
 		sections = append(sections, activePaneBox)
 	} else {
