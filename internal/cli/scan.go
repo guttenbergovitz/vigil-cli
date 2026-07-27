@@ -9,8 +9,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/guttenbergovitz/vigil-cli/internal/container"
 	"github.com/guttenbergovitz/vigil-cli/internal/export"
 	"github.com/guttenbergovitz/vigil-cli/internal/git"
+	"github.com/guttenbergovitz/vigil-cli/internal/license"
 	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
 	"github.com/guttenbergovitz/vigil-cli/internal/scan"
 	"github.com/guttenbergovitz/vigil-cli/internal/secrets"
@@ -160,23 +162,21 @@ func Scan(args []string) error {
 	case err := <-errorChan:
 		return err
 	case result := <-resultChan:
-		// Handle secret scanning if requested
-		if *scanSecrets {
-			secScanner := secrets.NewScanner()
-			findings, err := secScanner.ScanDirectory(absPath)
-			if err == nil {
-				result.SecretCount = len(findings)
-				if len(findings) > 0 {
-					fmt.Printf("\n󰌆 Secret Scan Findings (%d leaked credentials/secrets detected):\n", len(findings))
-					for _, f := range findings {
-						relPath, _ := filepath.Rel(absPath, f.FilePath)
-						if relPath == "" {
-							relPath = f.FilePath
-						}
-						fmt.Printf("  • [%s] %s:%d -> %s\n", f.Type, relPath, f.LineNumber, f.Match)
+		secList, _ := secrets.NewScanner().ScanDirectory(absPath)
+		iacList, _ := container.AuditProject(absPath)
+		licList := license.AnalyzeGraphLicenses(nil, nil)
+
+		// Handle secret scanning if requested or in TUI
+		if *scanSecrets || finalModel != nil {
+			result.SecretCount = len(secList)
+			if *scanSecrets && len(secList) > 0 {
+				fmt.Printf("\n󰌆 Secret Scan Findings (%d leaked credentials/secrets detected):\n", len(secList))
+				for _, f := range secList {
+					relPath, _ := filepath.Rel(absPath, f.FilePath)
+					if relPath == "" {
+						relPath = f.FilePath
 					}
-				} else {
-					fmt.Println("\n󰌆 Secret Scan: No leaked credentials or hardcoded secrets detected.")
+					fmt.Printf("  • [%s] %s:%d -> %s\n", f.Type, relPath, f.LineNumber, f.Match)
 				}
 			}
 		}
@@ -185,6 +185,7 @@ func Scan(args []string) error {
 		var model *ui.Model
 		if finalModel != nil {
 			model = finalModel.(*ui.Model)
+			model.SetDone(result, nil, secList, iacList, licList)
 		}
 		return handleScanResult(result, *outputFmt, model)
 	case <-done:
@@ -314,13 +315,7 @@ func (t *TUIAdapter) Vulnerability(vuln types.Vulnerability, pkg string, path []
 func (t *TUIAdapter) Done(result *types.ScanResult) {
 	if t.program != nil {
 		t.program.Send(ui.DoneMsg{
-			Result: &ui.ScanResult{
-				TotalVulns:    result.TotalVulns,
-				CriticalVulns: result.CriticalVulns,
-				HighVulns:     result.HighVulns,
-				MediumVulns:   result.MediumVulns,
-				LowVulns:      result.LowVulns,
-			},
+			Result: result,
 		})
 	}
 }
