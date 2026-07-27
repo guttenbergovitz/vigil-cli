@@ -90,9 +90,10 @@ type Model struct {
 	searchQuery     string
 	isSearching     bool
 	groupMode       GroupMode
-	exportFormat    string // "json", "csv", "markdown", "cyclonedx", "spdx"
-	exportStatus    string
-	mu              sync.Mutex
+	exportFormat        string // "json", "csv", "markdown", "cyclonedx", "spdx"
+	exportStatus        string
+	tableReasonColWidth int
+	mu                  sync.Mutex
 }
 
 // ProgressMsg updates scan progress.
@@ -569,6 +570,27 @@ func (m *Model) recalculateViewports() {
 		bottomHeight = bodyHeight
 	}
 
+	// Calculate dynamic table column widths fitting leftWidth exactly
+	tableInnerWidth := leftWidth - 6
+	if tableInnerWidth < 30 {
+		tableInnerWidth = 30
+	}
+	sevColWidth := 10
+	targetColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.35)
+	idColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.30)
+	reasonColWidth := tableInnerWidth - sevColWidth - targetColWidth - idColWidth
+	if reasonColWidth < 10 {
+		reasonColWidth = 10
+	}
+	m.tableReasonColWidth = reasonColWidth
+
+	m.vulnTable.SetColumns([]table.Column{
+		{Title: "SEVERITY", Width: sevColWidth},
+		{Title: "TARGET", Width: targetColWidth},
+		{Title: "ID / RULE", Width: idColWidth},
+		{Title: "REASON", Width: reasonColWidth},
+	})
+
 	m.vulnTable.SetWidth(leftWidth - 4)
 	m.vulnTable.SetHeight(topHeight - 3)
 
@@ -585,11 +607,18 @@ func (m *Model) recalculateViewports() {
 }
 
 func (m *Model) updateTableLayout() {
+	reasonColWidth := m.tableReasonColWidth
+	if reasonColWidth <= 0 {
+		reasonColWidth = 25
+	}
+
 	var rows []table.Row
 	for _, item := range m.filteredItems {
 		reasonSummary := item.ReasonFlagged
-		if len(reasonSummary) > 35 {
-			reasonSummary = reasonSummary[:32] + "..."
+		if len(reasonSummary) > reasonColWidth {
+			if reasonColWidth > 3 {
+				reasonSummary = reasonSummary[:reasonColWidth-3] + "..."
+			}
 		}
 		rows = append(rows, table.Row{
 			strings.ToUpper(item.Severity),
