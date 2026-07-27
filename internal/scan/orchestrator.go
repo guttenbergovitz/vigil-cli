@@ -118,6 +118,33 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 			return nil, fmt.Errorf("failed to parse requirements.txt: %w", err)
 		}
 		graph = buildGraphFromDeps(deps, lockType.Ecosystem())
+	case lockfile.CargoLock:
+		graph, err = lockfile.ParseCargoLockGraph(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse Cargo.lock: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse Cargo.lock: %w", err)
+		}
+	case lockfile.ComposerLock:
+		graph, err = lockfile.ParseComposerLockGraph(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse composer.lock: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse composer.lock: %w", err)
+		}
+	case lockfile.GoModLock:
+		graph, err = lockfile.ParseGoModGraph(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse go.mod: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse go.mod: %w", err)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported lock file type: %s", lockType)
 	}

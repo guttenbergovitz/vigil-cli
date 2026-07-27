@@ -269,6 +269,12 @@ func ParseLockFile(r io.Reader, typ LockFileType) (*Dependencies, error) {
 		return ParsePipfileLock(r)
 	case RequirementsTxt:
 		return ParseRequirementsTxt(r)
+	case CargoLock:
+		return ParseCargoLock(r)
+	case ComposerLock:
+		return ParseComposerLock(r)
+	case GoModLock:
+		return ParseGoMod(r)
 	default:
 		return nil, fmt.Errorf("unknown or unsupported lock file type: %s", typ)
 	}

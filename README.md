@@ -190,9 +190,11 @@ Ensures every vulnerability has a CVSS score for accurate risk assessment.
 
 ## Lock File Support
 
-- `package-lock.json` (npm v1, v2, v3)
-- `yarn.lock` (Yarn v1, v2+)
-- `pnpm-lock.yaml` (pnpm v5, v6, v9)
+- **JavaScript / TypeScript**: `package-lock.json` (npm), `yarn.lock` (Yarn), `pnpm-lock.yaml` (pnpm)
+- **Python**: `uv.lock` (uv), `poetry.lock` (Poetry), `Pipfile.lock` (Pipenv), `requirements.txt` (pip)
+- **Rust**: `Cargo.lock` (Cargo)
+- **PHP**: `composer.lock` (Composer)
+- **Go**: `go.mod` (Go modules)
 
 ## Contributing
 
