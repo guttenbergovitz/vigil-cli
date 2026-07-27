@@ -93,6 +93,8 @@ type Model struct {
 	exportFormat        string // "json", "csv", "markdown", "cyclonedx", "spdx"
 	exportStatus        string
 	tableReasonColWidth int
+	tableTargetColWidth int
+	tableIDColWidth     int
 	mu                  sync.Mutex
 }
 
@@ -569,17 +571,20 @@ func (m *Model) recalculateViewports() {
 		bottomHeight = bodyHeight
 	}
 
-	// Calculate dynamic table column widths fitting leftWidth exactly (subtracting 10 for borders and cell padding)
+	// Calculate dynamic table column widths fitting leftWidth exactly (SEVERITY: 10, TARGET: 40%, ID: 60%)
 	tableInnerWidth := leftWidth - 10
 	if tableInnerWidth < 20 {
 		tableInnerWidth = 20
 	}
 	sevColWidth := 10
-	targetColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.55)
+	targetColWidth := int(float64(tableInnerWidth-sevColWidth) * 0.40)
 	idColWidth := tableInnerWidth - sevColWidth - targetColWidth
-	if idColWidth < 8 {
-		idColWidth = 8
+	if idColWidth < 12 {
+		idColWidth = 12
 	}
+
+	m.tableTargetColWidth = targetColWidth
+	m.tableIDColWidth = idColWidth
 
 	m.vulnTable.SetColumns([]table.Column{
 		{Title: "SEVERITY", Width: sevColWidth},
@@ -603,12 +608,35 @@ func (m *Model) recalculateViewports() {
 }
 
 func (m *Model) updateTableLayout() {
+	targetWidth := m.tableTargetColWidth
+	if targetWidth <= 0 {
+		targetWidth = 20
+	}
+	idWidth := m.tableIDColWidth
+	if idWidth <= 0 {
+		idWidth = 20
+	}
+
 	var rows []table.Row
 	for _, item := range m.filteredItems {
+		pkgStr := item.Package
+		if len(pkgStr) > targetWidth {
+			if targetWidth > 3 {
+				pkgStr = pkgStr[:targetWidth-3] + "..."
+			}
+		}
+
+		idStr := item.ID
+		if len(idStr) > idWidth {
+			if idWidth > 3 {
+				idStr = idStr[:idWidth-3] + "..."
+			}
+		}
+
 		rows = append(rows, table.Row{
 			strings.ToUpper(item.Severity),
-			item.Package,
-			item.ID,
+			pkgStr,
+			idStr,
 		})
 	}
 	m.vulnTable.SetRows(rows)

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-07-27
+
+### Fixed
+
+- **Optimize Column Width Ratios & Add Row String Truncation in Box 1 Table**
+  - Reallocated Box 1 table column ratios (`SEVERITY`: 10, `TARGET / PACKAGE`: 40%, `ID / RULE`: 60%) so long identifiers (e.g. `GHSA-m99w-x7hq-7vfj` or `CVE-2026-44577`) get generous width and never get pushed to a second line.
+  - Added strict string truncation (`...`) for package and ID strings to ensure every row in Box 1 strictly occupies 1 single line with zero row-wrapping.
+
 ## [1.4.6] - 2026-07-27
 
 ### Fixed
