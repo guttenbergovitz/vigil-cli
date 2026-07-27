@@ -1,6 +1,6 @@
 # Vigil CLI
 
-Lightweight vulnerability scanner for JavaScript/TypeScript projects.
+Lightweight vulnerability scanner for JavaScript/TypeScript, Python, Rust, PHP, and Go projects.
 
 Analyses dependency trees and reports CVE exposure with context, enriched CVSS scores, and detailed vulnerability information.
 
@@ -23,8 +23,13 @@ vigil report
 
 ## Features
 
+- **Multi-ecosystem SCA scanning** - JavaScript/TypeScript, Python, Rust, PHP, and Go projects
+- **Secret Scanning** - Detect hardcoded AWS keys, GitHub tokens, Slack webhooks, SSH keys, and DB credentials using regex and Shannon entropy analysis
+- **Software Bill of Materials (SBOM)** - Export industry-standard **CycloneDX v1.5** and **SPDX v2.3** JSON formats
+- **License Compliance** - Categorize licenses into Permissive (MIT, Apache) vs Copyleft (GPL, AGPL) risk levels
+- **Container & IaC Security** - Audit Dockerfiles and GitHub Actions workflows for security misconfigurations
 - **Remote repository scanning** - Scan GitHub, Bitbucket, and other git repositories directly without cloning manually
-- **Full dependency chain tracking** - Shows complete vulnerability paths for all lock file types (npm, Yarn, pnpm)
+- **Full dependency chain tracking** - Shows complete vulnerability paths for all supported lock file types
 - **Temporal filtering** - Eliminates 30-40% false positives by filtering vulnerabilities published before package release
 - **Multi-source CVSS enrichment** - Aggregates scores from NVD, GitHub Security Advisories, and OSV
 - **Interactive TUI** - Real-time scanning progress with live vulnerability table
@@ -32,15 +37,16 @@ vigil report
 - **Multiple report formats**
   - **Table** (default): Compact Trivy-style tabular format with exploit classification
   - **Security**: Production-ready report for AppSec teams with executive summary
+  - **CycloneDX / SPDX**: Industry-standard SBOM export formats (JSON)
   - **Text**: Tree-structured detailed view
-  - **CSV/Markdown/JSON**: Export formats for integration
+  - **CSV / Markdown / JSON**: Export formats for integration
 - **Intelligent risk assessment** - Exploit type classification and runtime exploitability analysis
 - **Release gate decisions** - Automated recommendations (proceed/mitigate/block)
 
 ## Requirements
 
-- Go 1.24+
-- Node.js/TypeScript project with lock file (`package-lock.json`, `yarn.lock`, or `pnpm-lock.yaml`)
+- Go 1.24+ (if building from source)
+- Project with a supported lock file (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `requirements.txt`, `Cargo.lock`, `composer.lock`, or `go.mod`)
 
 ## Installation
 
@@ -190,9 +196,11 @@ Ensures every vulnerability has a CVSS score for accurate risk assessment.
 
 ## Lock File Support
 
-- `package-lock.json` (npm v1, v2, v3)
-- `yarn.lock` (Yarn v1, v2+)
-- `pnpm-lock.yaml` (pnpm v5, v6, v9)
+- **JavaScript / TypeScript**: `package-lock.json` (npm), `yarn.lock` (Yarn), `pnpm-lock.yaml` (pnpm)
+- **Python**: `uv.lock` (uv), `poetry.lock` (Poetry), `Pipfile.lock` (Pipenv), `requirements.txt` (pip)
+- **Rust**: `Cargo.lock` (Cargo)
+- **PHP**: `composer.lock` (Composer)
+- **Go**: `go.mod` (Go modules)
 
 ## Contributing
 

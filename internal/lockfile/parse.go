@@ -195,21 +195,51 @@ func ParseNPMLockGraph(r io.Reader) (*types.DependencyGraph, error) {
 type LockFileType string
 
 const (
-	NPMLock  LockFileType = "npm"
-	YarnLock LockFileType = "yarn"
-	PnpmLock LockFileType = "pnpm"
+	NPMLock         LockFileType = "npm"
+	YarnLock        LockFileType = "yarn"
+	PnpmLock        LockFileType = "pnpm"
+	UVLock          LockFileType = "uv"
+	PoetryLock      LockFileType = "poetry"
+	PipfileLock     LockFileType = "pipfile"
+	RequirementsTxt LockFileType = "requirements"
+	CargoLock       LockFileType = "cargo"
+	ComposerLock    LockFileType = "composer"
+	GoModLock       LockFileType = "gomod"
 )
 
-// FindLockFile searches for supported lock files in the given directory.
+// Ecosystem maps a lock file type to its target package ecosystem.
+func (t LockFileType) Ecosystem() types.Ecosystem {
+	switch t {
+	case UVLock, PoetryLock, PipfileLock, RequirementsTxt:
+		return types.EcosystemPyPI
+	case CargoLock:
+		return types.EcosystemCargo
+	case ComposerLock:
+		return types.EcosystemPackagist
+	case GoModLock:
+		return types.EcosystemGo
+	default:
+		return types.EcosystemNPM
+	}
+}
+
+// FindLockFile searches for supported lock files in the given directory in priority order.
 // Returns the filename and type of the first found lock file, or error if none found.
 func FindLockFile(dir string) (string, LockFileType, error) {
 	candidates := []struct {
 		name string
 		typ  LockFileType
 	}{
+		{"uv.lock", UVLock},
+		{"poetry.lock", PoetryLock},
+		{"Pipfile.lock", PipfileLock},
+		{"requirements.txt", RequirementsTxt},
 		{"package-lock.json", NPMLock},
 		{"yarn.lock", YarnLock},
 		{"pnpm-lock.yaml", PnpmLock},
+		{"Cargo.lock", CargoLock},
+		{"composer.lock", ComposerLock},
+		{"go.mod", GoModLock},
 	}
 
 	for _, candidate := range candidates {
@@ -219,7 +249,7 @@ func FindLockFile(dir string) (string, LockFileType, error) {
 		}
 	}
 
-	return "", "", errors.New("no supported lock file found (package-lock.json, yarn.lock, pnpm-lock.yaml)")
+	return "", "", errors.New("no supported lock file found (uv.lock, poetry.lock, Pipfile.lock, requirements.txt, package-lock.json, yarn.lock, pnpm-lock.yaml, Cargo.lock, composer.lock, go.mod)")
 }
 
 // ParseLockFile dispatches to the correct parser based on lock file type.
@@ -231,8 +261,22 @@ func ParseLockFile(r io.Reader, typ LockFileType) (*Dependencies, error) {
 		return ParsePnpmLock(r)
 	case YarnLock:
 		return ParseYarnLock(r)
+	case UVLock:
+		return ParseUVLock(r)
+	case PoetryLock:
+		return ParsePoetryLock(r)
+	case PipfileLock:
+		return ParsePipfileLock(r)
+	case RequirementsTxt:
+		return ParseRequirementsTxt(r)
+	case CargoLock:
+		return ParseCargoLock(r)
+	case ComposerLock:
+		return ParseComposerLock(r)
+	case GoModLock:
+		return ParseGoMod(r)
 	default:
-		return nil, fmt.Errorf("unknown lock file type: %s", typ)
+		return nil, fmt.Errorf("unknown or unsupported lock file type: %s", typ)
 	}
 }
 

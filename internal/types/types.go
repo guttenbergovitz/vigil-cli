@@ -2,12 +2,24 @@ package types
 
 import "time"
 
-// Dependency represents a single npm package and its metadata.
+// Ecosystem represents a package manager ecosystem supported by Vigil.
+type Ecosystem string
+
+const (
+	EcosystemNPM       Ecosystem = "npm"
+	EcosystemPyPI      Ecosystem = "PyPI"
+	EcosystemGo        Ecosystem = "Go"
+	EcosystemCargo     Ecosystem = "Cargo"
+	EcosystemPackagist Ecosystem = "Packagist"
+)
+
+// Dependency represents a single package and its metadata.
 type Dependency struct {
 	Name            string
 	Version         string
+	Ecosystem       Ecosystem      // Package manager ecosystem (npm, PyPI, Go, Cargo, etc.)
 	Type            DependencyType // production or development
-	ReleasedAt      *time.Time     // Package release date from npm registry (for temporal filtering)
+	ReleasedAt      *time.Time     // Package release date (for temporal filtering)
 	Vulnerabilities []Vulnerability
 }
 
@@ -62,4 +74,5 @@ type ScanResult struct {
 	HighVulns        int
 	MediumVulns      int
 	LowVulns         int
+	SecretCount      int
 }

@@ -1,32 +1,35 @@
 package types
 
-// DependencyNode reprezentuje pojedynczy package w dependency tree.
+// DependencyNode represents a single package in the dependency tree.
 type DependencyNode struct {
-	Name             string
-	Version          string
-	Type             DependencyType      // production or development
-	Direct           bool                // czy to direct dependency czy transitive
-	Depth            int                 // 0 = direct, 1 = dependency of direct, etc.
-	Parents          []string            // slice of "name@version" which depend on this
-	Children         []string            // slice of "name@version" this depends on
-	Vulnerabilities  []Vulnerability     // CVEs for this package
+	Name            string
+	Version         string
+	Ecosystem       Ecosystem       // Package ecosystem (npm, PyPI, Go, Cargo, etc.)
+	Type            DependencyType  // production or development
+	Direct          bool            // whether direct dependency or transitive
+	Depth           int             // 0 = direct, 1 = dependency of direct, etc.
+	Parents         []string        // slice of "name@version" which depend on this
+	Children        []string        // slice of "name@version" this depends on
+	Vulnerabilities []Vulnerability // CVEs for this package
 }
 
-// DependencyGraph reprezentuje pełny dependency tree.
+// DependencyGraph represents a full dependency tree.
 type DependencyGraph struct {
-	Nodes map[string]*DependencyNode // key: "name@version"
-	Root  []string                   // direct dependencies: []"name@version"
+	Ecosystem Ecosystem                   // Overall ecosystem of graph
+	Nodes     map[string]*DependencyNode // key: "name@version"
+	Root      []string                   // direct dependencies: []"name@version"
 }
 
-// NewDependencyGraph tworzy nowy pusty graf.
+// NewDependencyGraph creates a new empty graph.
 func NewDependencyGraph() *DependencyGraph {
 	return &DependencyGraph{
-		Nodes: make(map[string]*DependencyNode),
-		Root:  make([]string, 0),
+		Ecosystem: EcosystemNPM,
+		Nodes:     make(map[string]*DependencyNode),
+		Root:      make([]string, 0),
 	}
 }
 
-// AddNode dodaje node do grafu.
+// AddNode adds a node to the graph.
 func (g *DependencyGraph) AddNode(name, version string, typ DependencyType, direct bool) *DependencyNode {
 	key := name + "@" + version
 	if node, exists := g.Nodes[key]; exists {
@@ -34,13 +37,14 @@ func (g *DependencyGraph) AddNode(name, version string, typ DependencyType, dire
 	}
 
 	node := &DependencyNode{
-		Name:     name,
-		Version:  version,
-		Type:     typ,
-		Direct:   direct,
-		Depth:    -1, // będzie obliczony później
-		Parents:  make([]string, 0),
-		Children: make([]string, 0),
+		Name:      name,
+		Version:   version,
+		Ecosystem: g.Ecosystem,
+		Type:      typ,
+		Direct:    direct,
+		Depth:     -1,
+		Parents:   make([]string, 0),
+		Children:  make([]string, 0),
 	}
 
 	g.Nodes[key] = node

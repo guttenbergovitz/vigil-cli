@@ -7,10 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-27
+
+### Added
+
+- **Full-Spectrum Security & SBOM Engine** (ADR 009)
+  - **Secret Scanning (`--secrets`)**: Pattern matching engine with Shannon entropy calculation (>4.5) to detect AWS keys, GitHub tokens, Slack webhooks, SSH keys, JWT tokens, and DB connection credentials with masked output
+  - **Software Bill of Materials (SBOM)**: Export standard **CycloneDX v1.5 JSON** (`--format cyclonedx`) and **SPDX v2.3 JSON** (`--format spdx`) formats
+  - **License Compliance**: Categorization of package licenses into Permissive (MIT, Apache, BSD) vs Copyleft/restrictive (GPL, AGPL, LGPL, MPL) risk profiles
+  - **Container & IaC Security**: Security linter for `Dockerfile` (root user, unpinned base images, secrets in ENV) and `.github/workflows/*.yml` (unpinned actions, dangerous `pull_request_target` triggers)
+
 ## [1.1.0] - 2026-07-27
 
 ### Added
 
+- **Multi-Ecosystem Scanning Support** (ADR 008)
+  - Added support for **Python**: `uv.lock`, `poetry.lock`, `Pipfile.lock`, `requirements.txt`
+  - Added support for **Rust**: `Cargo.lock`
+  - Added support for **PHP**: `composer.lock`
+  - Added support for **Go**: `go.mod`
+  - Added `types.Ecosystem` abstraction (`npm`, `PyPI`, `Cargo`, `Packagist`, `Go`)
+  - Integrated ecosystem-specific PURL queries for OSV API (`pkg:pypi/...`, `pkg:cargo/...`, `pkg:composer/...`, `pkg:golang/...`)
+  - Added `--lockfile` CLI flag to explicitly override lockfile selection
+- **Multi-Ecosystem Architecture**
+  - Priority lockfile auto-detection strategy
 - **Containerization & Nix Flake support** (ADR 003)
   - Multi-stage `Dockerfile` for minimal Alpine-based runtime (~20MB)
   - `flake.nix` with hermetic Go builds, development shell, and `nix run` support

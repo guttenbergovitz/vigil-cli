@@ -13,6 +13,7 @@ import (
 	"github.com/guttenbergovitz/vigil-cli/internal/git"
 	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
 	"github.com/guttenbergovitz/vigil-cli/internal/scan"
+	"github.com/guttenbergovitz/vigil-cli/internal/secrets"
 	"github.com/guttenbergovitz/vigil-cli/internal/types"
 	"github.com/guttenbergovitz/vigil-cli/internal/ui"
 )
@@ -23,6 +24,8 @@ func Scan(args []string) error {
 	skipDevDeps := fs.Bool("skip-devdeps", false, "Skip development dependencies")
 	outputFmt := fs.String("output", "", "Output format (json, csv, markdown)")
 	noTUI := fs.Bool("no-tui", false, "Disable interactive TUI (useful for CI/testing)")
+	customLockFile := fs.String("lockfile", "", "Explicitly specify lockfile name (e.g. uv.lock, requirements.txt)")
+	scanSecrets := fs.Bool("secrets", false, "Scan codebase for hardcoded secrets and leaked credentials")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -57,10 +60,42 @@ func Scan(args []string) error {
 		}
 	}
 
-	// Find lock file
-	lockFile, lockType, err := lockfile.FindLockFile(absPath)
-	if err != nil {
-		return fmt.Errorf("no lock file found in %s: %w\n\nSupported lock files: package-lock.json (npm), yarn.lock (yarn), pnpm-lock.yaml (pnpm)", absPath, err)
+	var lockFile string
+	var lockType lockfile.LockFileType
+
+	if *customLockFile != "" {
+		lockFile = *customLockFile
+		switch lockFile {
+		case "uv.lock":
+			lockType = lockfile.UVLock
+		case "poetry.lock":
+			lockType = lockfile.PoetryLock
+		case "Pipfile.lock":
+			lockType = lockfile.PipfileLock
+		case "requirements.txt":
+			lockType = lockfile.RequirementsTxt
+		case "package-lock.json":
+			lockType = lockfile.NPMLock
+		case "yarn.lock":
+			lockType = lockfile.YarnLock
+		case "pnpm-lock.yaml":
+			lockType = lockfile.PnpmLock
+		case "Cargo.lock":
+			lockType = lockfile.CargoLock
+		case "composer.lock":
+			lockType = lockfile.ComposerLock
+		case "go.mod":
+			lockType = lockfile.GoModLock
+		default:
+			return fmt.Errorf("unsupported custom lock file: %s", lockFile)
+		}
+	} else {
+		// Find lock file automatically
+		var err error
+		lockFile, lockType, err = lockfile.FindLockFile(absPath)
+		if err != nil {
+			return fmt.Errorf("no lock file found in %s: %w\n\nSupported lock files: uv.lock, poetry.lock, Pipfile.lock, requirements.txt, package-lock.json, yarn.lock, pnpm-lock.yaml, Cargo.lock, composer.lock, go.mod", absPath, err)
+		}
 	}
 
 	lockFilePath := filepath.Join(absPath, lockFile)
@@ -125,6 +160,27 @@ func Scan(args []string) error {
 	case err := <-errorChan:
 		return err
 	case result := <-resultChan:
+		// Handle secret scanning if requested
+		if *scanSecrets {
+			secScanner := secrets.NewScanner()
+			findings, err := secScanner.ScanDirectory(absPath)
+			if err == nil {
+				result.SecretCount = len(findings)
+				if len(findings) > 0 {
+					fmt.Printf("\n🔑 Secret Scan Findings (%d leaked credentials/secrets detected):\n", len(findings))
+					for _, f := range findings {
+						relPath, _ := filepath.Rel(absPath, f.FilePath)
+						if relPath == "" {
+							relPath = f.FilePath
+						}
+						fmt.Printf("  • [%s] %s:%d -> %s\n", f.Type, relPath, f.LineNumber, f.Match)
+					}
+				} else {
+					fmt.Println("\n🔑 Secret Scan: No leaked credentials or hardcoded secrets detected.")
+				}
+			}
+		}
+
 		// Handle result
 		var model *ui.Model
 		if finalModel != nil {
@@ -153,6 +209,14 @@ func handleScanResult(result *types.ScanResult, outputFmt string, finalModel *ui
 			}
 		case "json":
 			if err := export.JSON(result, os.Stdout); err != nil {
+				return err
+			}
+		case "cyclonedx":
+			if err := export.CycloneDX(result, os.Stdout); err != nil {
+				return err
+			}
+		case "spdx":
+			if err := export.SPDX(result, os.Stdout); err != nil {
 				return err
 			}
 		default:

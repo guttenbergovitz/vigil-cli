@@ -19,7 +19,9 @@ vigil scan [path] [flags]
 ### Flags
 
 - `--skip-devdeps` - Skip development dependencies
-- `--output <format>` - Save results (json, csv, markdown)
+- `--output <format>` - Save results (json, csv, markdown, cyclonedx, spdx)
+- `--lockfile <filename>` - Explicitly specify lockfile name (e.g. `uv.lock`, `requirements.txt`, `Cargo.lock`)
+- `--secrets` - Scan codebase for hardcoded credentials, API keys, and private SSH keys
 
 ### Behaviour
 
@@ -113,18 +115,25 @@ API calls are rate-limited to respect service limits:
 
 ### Lock File Support
 
-**npm (package-lock.json):**
-- v1, v2, v3 formats supported
-- Flat and nested structures
+**JavaScript / TypeScript:**
+- `package-lock.json` (npm v1, v2, v3)
+- `yarn.lock` (Yarn v1, v2+)
+- `pnpm-lock.yaml` (pnpm v5, v6, v9)
 
-**Yarn (yarn.lock):**
-- Yarn v1 (classic)
-- Yarn v2+ (Berry)
+**Python:**
+- `uv.lock` (uv)
+- `poetry.lock` (Poetry)
+- `Pipfile.lock` (Pipenv)
+- `requirements.txt` (pip)
 
-**pnpm (pnpm-lock.yaml):**
-- v5, v6, v9 formats
-- Peer dependency resolution
-- Workspace support
+**Rust:**
+- `Cargo.lock` (Cargo)
+
+**PHP:**
+- `composer.lock` (Composer)
+
+**Go:**
+- `go.mod` (Go modules)
 
 ### Output
 
@@ -155,6 +164,8 @@ vigil report [flags]
   - `table` - Compact tabular format with exploit classification
   - `text` - Tree-structured detailed view
   - `security` - Production AppSec report
+  - `cyclonedx` - CycloneDX v1.5 JSON Software Bill of Materials (SBOM)
+  - `spdx` - SPDX v2.3 JSON Software Bill of Materials (SBOM)
   - `csv` - CSV export
   - `markdown` - Markdown export
   - `json` - JSON export
