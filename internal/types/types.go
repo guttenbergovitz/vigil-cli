@@ -7,6 +7,7 @@ type Dependency struct {
 	Name            string
 	Version         string
 	Type            DependencyType // production or development
+	ReleasedAt      *time.Time     // Package release date from npm registry (for temporal filtering)
 	Vulnerabilities []Vulnerability
 }
 
@@ -61,43 +62,4 @@ type ScanResult struct {
 	HighVulns        int
 	MediumVulns      int
 	LowVulns         int
-}
-
-// Config represents .vigil.toml configuration.
-type Config struct {
-	Scan   ScanConfig   `toml:"scan"`
-	OSV    OSVConfig    `toml:"osv"`
-	Export ExportConfig `toml:"export"`
-}
-
-// ScanConfig holds scan-related settings.
-type ScanConfig struct {
-	SkipDevDeps bool `toml:"skip_devdeps"`
-}
-
-// OSVConfig holds OSV API settings.
-type OSVConfig struct {
-	URL     string `toml:"url"`
-	Timeout int    `toml:"timeout"`
-}
-
-// ExportConfig holds export-related settings.
-type ExportConfig struct {
-	DefaultFormat string `toml:"default_format"`
-}
-
-// DefaultConfig returns configuration with sensible defaults.
-func DefaultConfig() Config {
-	return Config{
-		Scan: ScanConfig{
-			SkipDevDeps: false,
-		},
-		OSV: OSVConfig{
-			URL:     "https://api.osv.dev/v1/query",
-			Timeout: 10,
-		},
-		Export: ExportConfig{
-			DefaultFormat: "text",
-		},
-	}
 }

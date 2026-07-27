@@ -1,0 +1,35 @@
+# yarn lockfile v1
+
+lodash@4.17.21:
+  version "4.17.21"
+  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.21.tgz"
+  integrity sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vvoQYT+8x8+oFbMrqUjqN7j6k5r0A+72kN1g/5Rk4Yj6pYqrW8w==
+
+express@4.18.2:
+  version "4.18.2"
+  resolved "https://registry.yarnpkg.com/express/-/express-4.18.2.tgz"
+  integrity sha512-5/PsL6iGPdfQ/lKM1UuYUu0Z1eqY+GxNxy+NwRyD9z30z5GQrZjV6vGLjAclnd6NwYqK53cFrAJCqrVH7CbQvQ==
+  dependencies:
+    body-parser "1.20.1"
+    debug "2.6.9"
+    qs "6.11.0"
+
+body-parser@1.20.1:
+  version "1.20.1"
+  resolved "https://registry.yarnpkg.com/body-parser/-/body-parser-1.20.1.tgz"
+  integrity sha512-jWi7abTbYwajOytLjIIroI+/R5+wvSV+FHlmCY6iewVaKo0+BYAC9rMkjw3FSYl08cj7DuxgulELQc1wXIwg8w==
+
+debug@2.6.9:
+  version "2.6.9"
+  resolved "https://registry.yarnpkg.com/debug/-/debug-2.6.9.tgz"
+  integrity sha512-bC7sILetShuaIw7w3+7r/+ZaitTwEblbl2w/C+7Uu/+20nE0IijGXtHBjww59GrlW5eyL8l2yW/YrkiNguko8w==
+
+qs@6.11.0:
+  version "6.11.0"
+  resolved "https://registry.yarnpkg.com/qs/-/qs-6.11.0.tgz"
+  integrity sha512-MvjoMCJwEarSbUYk5O+nmoSzSutSsTwF85zcHPQ9OrlFoZOYIjaqBAJIqIXjptyD5vThxGq52Xu/MaJzRkIk4Q==
+
+mocha@10.0.0:
+  version "10.0.0"
+  resolved "https://registry.yarnpkg.com/mocha/-/mocha-10.0.0.tgz"
+  integrity sha512-FZcK+8NF5Cg9P4XWWIzQnPfbgvDzpKTLVzDAL/C+Z/DFqkXMvBXFtj+eLRJI9F3XVs9gZ3w7DvnQCWjuv+mVEQ==

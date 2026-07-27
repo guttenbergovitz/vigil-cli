@@ -9,6 +9,7 @@ import (
 
 	"github.com/guttenbergovitz/vigil-cli/internal/github"
 	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
+	"github.com/guttenbergovitz/vigil-cli/internal/npm"
 	"github.com/guttenbergovitz/vigil-cli/internal/nvd"
 	"github.com/guttenbergovitz/vigil-cli/internal/osv"
 	"github.com/guttenbergovitz/vigil-cli/internal/types"
@@ -46,7 +47,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 
 	var graph *types.DependencyGraph
 
-	if lockType == lockfile.PnpmLock {
+	// All lock types now use graph parsers for proper dependency chains
+	switch lockType {
+	case lockfile.PnpmLock:
 		graph, err = lockfile.ParsePnpmLockGraph(lockf)
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to parse pnpm-lock.yaml: %v", err)
@@ -55,31 +58,26 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 			}
 			return nil, fmt.Errorf("failed to parse pnpm-lock.yaml: %w", err)
 		}
-	} else {
-		deps, err := lockfile.ParseLockFile(lockf, lockType)
+	case lockfile.NPMLock:
+		graph, err = lockfile.ParseNPMLockGraph(lockf)
 		if err != nil {
-			errMsg := fmt.Sprintf("Failed to parse lock file: %v", err)
+			errMsg := fmt.Sprintf("Failed to parse package-lock.json: %v", err)
 			if reporter != nil {
 				reporter.Error(errMsg)
 			}
-			return nil, fmt.Errorf("failed to parse lock file: %w", err)
+			return nil, fmt.Errorf("failed to parse package-lock.json: %w", err)
 		}
-
-		depTree, err := lockfile.BuildDependencyTree(deps)
+	case lockfile.YarnLock:
+		graph, err = lockfile.ParseYarnLockGraph(lockf)
 		if err != nil {
-			errMsg := fmt.Sprintf("Failed to build dependency tree: %v", err)
+			errMsg := fmt.Sprintf("Failed to parse yarn.lock: %v", err)
 			if reporter != nil {
 				reporter.Error(errMsg)
 			}
-			return nil, fmt.Errorf("failed to build dependency tree: %w", err)
+			return nil, fmt.Errorf("failed to parse yarn.lock: %w", err)
 		}
-
-		graph = types.NewDependencyGraph()
-		for _, dep := range depTree {
-			graph.AddNode(dep.Name, dep.Version, dep.Type, true)
-			graph.Root = append(graph.Root, dep.Name+"@"+dep.Version)
-		}
-		graph.CalculateDepths()
+	default:
+		return nil, fmt.Errorf("unsupported lock file type: %s", lockType)
 	}
 
 	// Check if graph has any nodes
@@ -101,6 +99,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 	// Initialize GitHub client (token optional; falls back to public API)
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	githubClient := github.New(githubToken, 10)
+
+	// Initialize npm registry client for temporal filtering
+	npmClient := npm.New("https://registry.npmjs.org", 10)
 
 	// Count nodes to scan and collect them
 	nodesToScan := 0
@@ -139,6 +140,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 			// fmt.Fprintf(os.Stderr, "DEBUG: Error scanning %s@%s: %v\n", node.Name, node.Version, err)
 			continue
 		}
+
+		// Fetch package release date for temporal filtering
+		releasedAt, _ := npmClient.GetReleaseDate(node.Name, node.Version)
 
 		// Process vulnerabilities
 		for j := range vulns {
@@ -204,12 +208,12 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 
 			// 4. If still no CVSS, derive from severity as last resort
 			if vulns[j].CVSSScore == 0 {
-				vulns[j].CVSSScore = deriveCVSSFromSeverity(vulns[j].Severity)
+				vulns[j].CVSSScore = types.DeriveCVSSFromSeverity(vulns[j].Severity)
 			}
 
 			// 5. If CVSS is present but severity is weak/unknown, derive severity from CVSS
 			if vulns[j].CVSSScore > 0 {
-				derivedSev := severityFromCVSS(vulns[j].CVSSScore)
+				derivedSev := types.SeverityFromCVSS(vulns[j].CVSSScore)
 				if vulns[j].Severity == "" || strings.EqualFold(string(vulns[j].Severity), "medium") || strings.EqualFold(string(vulns[j].Severity), "unknown") {
 					vulns[j].Severity = derivedSev
 				}
@@ -232,6 +236,9 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 				}
 			}
 		}
+
+		// Apply temporal filtering (remove vulnerabilities published before package release)
+		vulns = types.FilterTemporalFalsePositives(releasedAt, vulns)
 
 		node.Vulnerabilities = vulns
 		totalVulns += len(vulns)
@@ -316,36 +323,4 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *typ
 	}
 
 	return result
-}
-
-// deriveCVSSFromSeverity derives a CVSS score from severity level as last resort
-func deriveCVSSFromSeverity(severity types.Severity) float64 {
-	switch strings.ToLower(string(severity)) {
-	case "critical":
-		return 9.5 // High end of critical range
-	case "high":
-		return 7.5 // Middle of high range
-	case "medium":
-		return 5.0 // Middle of medium range
-	case "low":
-		return 2.5 // Middle of low range
-	default:
-		return 5.0 // Default to medium if unknown
-	}
-}
-
-// severityFromCVSS maps CVSS score to severity
-func severityFromCVSS(score float64) types.Severity {
-	switch {
-	case score >= 9.0:
-		return types.Critical
-	case score >= 7.0:
-		return types.High
-	case score >= 4.0:
-		return types.Medium
-	case score > 0:
-		return types.Low
-	default:
-		return types.Medium
-	}
 }
