@@ -53,13 +53,17 @@ go install github.com/guttenbergovitz/vigil-cli/cmd/vigil@latest
 ### Option 2: Build from Source
 
 ```bash
+# Install task runner (if not installed)
+go install github.com/go-task/task/v3/cmd/task@latest
+
+# Build vigil
 git clone https://github.com/guttenbergovitz/vigil-cli
 cd vigil-cli
-make build
+task build
 sudo mv vigil /usr/local/bin/
 ```
 
-The Makefile injects version information at build time. See [Installation Guide](documentation/getting-started/installation.md) for details.
+Taskfile injects version information at build time. See [Installation Guide](documentation/getting-started/installation.md) for details.
 
 ## Usage
 

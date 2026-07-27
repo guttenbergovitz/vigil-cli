@@ -1,0 +1,89 @@
+version: '3'
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  DATE:
+    sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
+  LDFLAGS: -ldflags "-X github.com/guttenbergovitz/vigil-cli/internal/version.Version={{.VERSION}} -X github.com/guttenbergovitz/vigil-cli/internal/version.Commit={{.COMMIT}} -X github.com/guttenbergovitz/vigil-cli/internal/version.Date={{.DATE}}"
+  BINARY: vigil
+
+tasks:
+  default:
+    desc: Build binary for host architecture
+    cmds:
+      - task: build
+
+  build:
+    desc: Build binary with version injection
+    cmds:
+      - go build {{.LDFLAGS}} -o {{.BINARY}} ./cmd/vigil
+    sources:
+      - cmd/**/*.go
+      - internal/**/*.go
+    generates:
+      - "{{.BINARY}}"
+
+  install:
+    desc: Install to $GOPATH/bin with version injection
+    cmds:
+      - go install {{.LDFLAGS}} ./cmd/vigil
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  test-verbose:
+    desc: Run tests with verbose output
+    cmds:
+      - go test -v ./...
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f {{.BINARY}}
+      - rm -f coverage.out
+
+  coverage:
+    desc: Run tests with coverage
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out
+
+  version:
+    desc: Show version information
+    cmds:
+      - echo "Version{{":"}} {{.VERSION}}"
+      - echo "Commit{{":"}}  {{.COMMIT}}"
+      - echo "Date{{":"}}    {{.DATE}}"
+
+  tag:
+    desc: Create a new git tag (usage{{":"}} task tag -- v1.0.0)
+    cmds:
+      - |
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "Usage: task tag -- v1.0.0"
+          exit 1
+        fi
+        git tag -a {{.CLI_ARGS}} -m "Release {{.CLI_ARGS}}"
+        echo "Created tag {{.CLI_ARGS}}"
+        echo "Push with: git push origin {{.CLI_ARGS}}"
+
+  fmt:
+    desc: Format Go code
+    cmds:
+      - go fmt ./...
+
+  lint:
+    desc: Run linter
+    cmds:
+      - go vet ./...
+
+  dev:
+    desc: Build and run for quick testing
+    cmds:
+      - task: build
+      - ./{{.BINARY}} version

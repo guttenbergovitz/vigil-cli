@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced Makefile with Taskfile for build automation
+  - Uses go-task/task for cross-platform build system
+  - Native host architecture detection
+  - Cleaner YAML syntax
+  - Same functionality (build, install, test, clean, version)
+
 ## [1.0.0] - 2026-07-27
 
 ### Added

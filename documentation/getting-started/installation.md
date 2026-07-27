@@ -23,25 +23,35 @@ vigil version
 
 ## Option 2: Build from Source
 
-Clone and build manually:
+Install task runner (if not installed):
+
+```bash
+go install github.com/go-task/task/v3/cmd/task@latest
+```
+
+Clone and build:
 
 ```bash
 git clone https://github.com/guttenbergovitz/vigil-cli
 cd vigil-cli
 
-# Build with version info using Makefile (recommended)
-make build
+# Build with version info using Taskfile (recommended)
+task build
 
 # Or build directly (no version injection)
 go build -o vigil ./cmd/vigil
 ```
 
-The Makefile automatically injects version, commit hash, and build date:
+Taskfile automatically injects version, commit hash, and build date:
 
 ```bash
-make build   # Build binary with version info
-make install # Install to $GOPATH/bin with version info
-make version # Show current version information
+task                # Build binary (default task)
+task build          # Build binary with version info
+task install        # Install to $GOPATH/bin with version info
+task version        # Show current version information
+task test           # Run tests
+task clean          # Remove build artifacts
+task --list         # List all available tasks
 ```
 
 Move to PATH:
