@@ -11,6 +11,7 @@ const (
 	EcosystemGo        Ecosystem = "Go"
 	EcosystemCargo     Ecosystem = "Cargo"
 	EcosystemPackagist Ecosystem = "Packagist"
+	EcosystemMaven     Ecosystem = "Maven"
 )
 
 // Dependency represents a single package and its metadata.

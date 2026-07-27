@@ -1,6 +1,6 @@
 # Vigil CLI
 
-Lightweight vulnerability scanner for JavaScript/TypeScript, Python, Rust, PHP, and Go projects.
+Lightweight vulnerability scanner for JavaScript/TypeScript, Python, Rust, PHP, Go, and Java projects.
 
 Analyses dependency trees and reports CVE exposure with context, enriched CVSS scores, and detailed vulnerability information.
 
@@ -23,7 +23,7 @@ vigil report
 
 ## Features
 
-- **Multi-ecosystem SCA scanning** - JavaScript/TypeScript, Python, Rust, PHP, and Go projects
+- **Multi-ecosystem SCA scanning** - JavaScript/TypeScript, Python, Rust, PHP, Go, and Java projects
 - **Secret Scanning** - Detect hardcoded AWS keys, GitHub tokens, Slack webhooks, SSH keys, and DB credentials using regex and Shannon entropy analysis
 - **Software Bill of Materials (SBOM)** - Export industry-standard **CycloneDX v1.5** and **SPDX v2.3** JSON formats
 - **License Compliance** - Categorize licenses into Permissive (MIT, Apache) vs Copyleft (GPL, AGPL) risk levels
@@ -46,7 +46,7 @@ vigil report
 ## Requirements
 
 - Go 1.24+ (if building from source)
-- Project with a supported lock file (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `requirements.txt`, `Cargo.lock`, `composer.lock`, or `go.mod`)
+- Project with a supported lock file (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `requirements.txt`, `Cargo.lock`, `composer.lock`, `go.mod`, `pom.xml`, or `gradle.lockfile`)
 
 ## Installation
 

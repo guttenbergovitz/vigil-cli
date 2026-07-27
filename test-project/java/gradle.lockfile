@@ -1,0 +1,4 @@
+# This is a Gradle dependency lockfile
+org.apache.logging.log4j:log4j-core:2.14.1=compileClasspath,runtimeClasspath
+org.springframework:spring-core:5.3.20=compileClasspath,runtimeClasspath
+junit:junit:4.13.2=testCompileClasspath

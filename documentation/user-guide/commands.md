@@ -135,6 +135,10 @@ API calls are rate-limited to respect service limits:
 **Go:**
 - `go.mod` (Go modules)
 
+**Java / Kotlin:**
+- `pom.xml` (Maven)
+- `gradle.lockfile` (Gradle)
+
 ### Output
 
 Interactive TUI shows:

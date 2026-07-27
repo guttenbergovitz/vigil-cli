@@ -84,6 +84,8 @@ func (c *Client) QueryWithEcosystem(pkg, version string, ecosystem types.Ecosyst
 		purlType = "cargo"
 	case types.EcosystemPackagist:
 		purlType = "composer"
+	case types.EcosystemMaven:
+		purlType = "maven"
 	default:
 		purlType = "npm"
 	}
