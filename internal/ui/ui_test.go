@@ -2,6 +2,11 @@ package ui
 
 import (
 	"testing"
+
+	"github.com/guttenbergovitz/vigil-cli/internal/container"
+	"github.com/guttenbergovitz/vigil-cli/internal/license"
+	"github.com/guttenbergovitz/vigil-cli/internal/secrets"
+	"github.com/guttenbergovitz/vigil-cli/internal/types"
 )
 
 // TestModelInitialState verifies initial TUI model state.
@@ -16,8 +21,8 @@ func TestModelInitialState(t *testing.T) {
 	}
 }
 
-// TestModelVulnerabilityFlow verifies vulnerability addition and transition to explorer.
-func TestModelVulnerabilityFlow(t *testing.T) {
+// TestModelFullSpectrumDashboard verifies tabs, secrets, IaC, licenses, reason flagged, and grouping.
+func TestModelFullSpectrumDashboard(t *testing.T) {
 	m := NewModel()
 
 	// Add test vulnerability
@@ -28,37 +33,90 @@ func TestModelVulnerabilityFlow(t *testing.T) {
 		Severity:       "critical",
 		CVSS:           10.0,
 		Description:    "Remote code execution in Log4j2 JNDI feature",
-		DependencyPath: []string{"my-app", "org.springframework.boot:spring-boot-starter-logging", "org.apache.logging.log4j:log4j-core"},
+		DependencyPath: []string{"my-app", "spring-boot-starter-logging", "log4j-core"},
 	})
 
-	if len(m.vulns) != 1 {
-		t.Fatalf("expected 1 vulnerability, got %d", len(m.vulns))
+	secList := []secrets.SecretFinding{
+		{
+			FilePath:    "config.env",
+			LineNumber:  2,
+			LineContent: "AWS_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE",
+			Type:        secrets.AWSKey,
+			Match:       "AKIAIOSFODNN7EXAMPLE",
+			Entropy:     4.8,
+		},
 	}
 
-	// Mark scan done
-	m.SetDone(&ScanResult{
+	iacList := []container.SecurityIssue{
+		{
+			Source:     "Dockerfile",
+			LineNumber: 1,
+			RuleID:     "DOCKER-001",
+			Title:      "Container Running as Root",
+			Message:    "No USER instruction found",
+			Severity:   container.High,
+		},
+	}
+
+	licList := []license.LicenseFinding{
+		{
+			PackageName: "gpl-lib",
+			Version:     "1.0.0",
+			License:     "GPL-3.0",
+			Category:    license.Copyleft,
+		},
+	}
+
+	// Mark scan done with graph and full spectrum findings
+	m.SetDone(&types.ScanResult{
 		TotalVulns:    1,
 		CriticalVulns: 1,
-	})
+	}, nil, secList, iacList, licList)
 
 	if m.state != StateExplorer {
 		t.Errorf("expected transition to StateExplorer after SetDone, got %v", m.state)
 	}
 
-	if len(m.filteredVulns) != 1 {
-		t.Errorf("expected 1 filtered vulnerability in explorer, got %d", len(m.filteredVulns))
+	// Test Tab 1: Vulnerabilities
+	if len(m.filteredItems) != 1 {
+		t.Fatalf("expected 1 item in TabVulnerabilities, got %d", len(m.filteredItems))
+	}
+	if m.filteredItems[0].ReasonFlagged == "" {
+		t.Errorf("expected non-empty ReasonFlagged for SCA vulnerability")
 	}
 
-	// Test severity filtering
-	m.filterSeverity = "high"
+	// Test Tab 2: Secrets
+	m.activeTab = TabSecrets
 	m.applyFilters()
-	if len(m.filteredVulns) != 0 {
-		t.Errorf("expected 0 vulnerabilities when filtering for High, got %d", len(m.filteredVulns))
+	if len(m.filteredItems) != 1 {
+		t.Fatalf("expected 1 item in TabSecrets, got %d", len(m.filteredItems))
+	}
+	if m.filteredItems[0].Domain != "SECRET" {
+		t.Errorf("expected domain SECRET, got %s", m.filteredItems[0].Domain)
 	}
 
-	m.filterSeverity = "critical"
+	// Test Tab 3: IaC
+	m.activeTab = TabIaC
 	m.applyFilters()
-	if len(m.filteredVulns) != 1 {
-		t.Errorf("expected 1 vulnerability when filtering for Critical, got %d", len(m.filteredVulns))
+	if len(m.filteredItems) != 1 {
+		t.Fatalf("expected 1 item in TabIaC, got %d", len(m.filteredItems))
+	}
+	if m.filteredItems[0].ID != "DOCKER-001" {
+		t.Errorf("expected rule ID DOCKER-001, got %s", m.filteredItems[0].ID)
+	}
+
+	// Test Tab 4: Licenses
+	m.activeTab = TabLicenses
+	m.applyFilters()
+	if len(m.filteredItems) != 1 {
+		t.Fatalf("expected 1 item in TabLicenses, got %d", len(m.filteredItems))
+	}
+
+	// Test Grouping Mode
+	m.activeTab = TabVulnerabilities
+	m.groupMode = GroupSeverity
+	m.applyFilters()
+	if len(m.filteredItems) < 2 {
+		t.Errorf("expected grouped items including header, got %d", len(m.filteredItems))
 	}
 }

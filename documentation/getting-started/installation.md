@@ -72,7 +72,7 @@ Run without installing Go or language runtimes:
 # Pull from DockerHub
 docker pull guttenbergovitz/vigil:latest
 
-# Scan local directory (JS, Python, Rust, PHP, Go)
+# Scan local directory (JS/TS, Python, Rust, PHP, Go, Java)
 docker run --rm -v "$(pwd):/scan" guttenbergovitz/vigil:latest scan .
 
 # Scan specific lockfile in polyglot repo

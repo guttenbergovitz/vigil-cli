@@ -48,6 +48,7 @@ Historical design decisions:
 - [ADR-008: Multi-Ecosystem Support](adr/008-multi-ecosystem-support.md)
 - [ADR-009: Full-Spectrum Security & SBOM Engine](adr/009-full-spectrum-security-and-sbom.md)
 - [ADR-010: Java Ecosystem Support (Maven & Gradle)](adr/010-java-ecosystem-support.md)
+- [ADR-011: Fullscreen DevSecOps Dashboard TUI](adr/011-fullscreen-devsecops-tui.md)
 
 ## Quick Links
 

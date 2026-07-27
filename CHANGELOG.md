@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-27
+
+### Added
+
+- **Fullscreen DevSecOps Dashboard TUI** (ADR 011)
+  - Fullscreen Tabbed Dashboard Navigation (`[1] Vulns`, `[2] Secrets`, `[3] IaC Security`, `[4] Licenses`, `[5] Dep Graph`)
+  - Interactive Grouping Engine (`[g]` for Flat View, Group by Package, Group by Severity)
+  - Explicit **"Reason Why Flagged"** justification display in Deep Inspector view
+  - Interactive **Export Modal (`[e]`)** supporting JSON, CSV, Markdown, CycloneDX v1.5, and SPDX v2.3 export formats directly from TUI
+  - Modern Neovim / Nerd Fonts icon aesthetic (no standard emojis)
+
 ## [1.3.0] - 2026-07-27
 
 ### Added

@@ -6,11 +6,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Styles holds predefined Lipgloss styles for Vigil TUI.
+// Styles holds predefined Lipgloss styles for Vigil Fullscreen TUI.
 type Styles struct {
 	Header           lipgloss.Style
 	Title            lipgloss.Style
 	Subtitle         lipgloss.Style
+	ActiveTab        lipgloss.Style
+	InactiveTab      lipgloss.Style
+	TabGap           lipgloss.Style
 	FilterBar        lipgloss.Style
 	StatusBar        lipgloss.Style
 	KeyHint          lipgloss.Style
@@ -20,12 +23,16 @@ type Styles struct {
 	BadgeMedium      lipgloss.Style
 	BadgeLow         lipgloss.Style
 	BadgeUnknown     lipgloss.Style
+	BadgeSecret      lipgloss.Style
+	BadgeIaC         lipgloss.Style
 	ChainTree        lipgloss.Style
 	ChainNode        lipgloss.Style
 	ChainTarget      lipgloss.Style
 	SearchPrompt     lipgloss.Style
 	SelectedRow      lipgloss.Style
 	DetailPanel      lipgloss.Style
+	ModalBox         lipgloss.Style
+	ReasonBox        lipgloss.Style
 }
 
 // DefaultStyles returns modern, high-contrast Lipgloss styles for Vigil TUI.
@@ -33,8 +40,8 @@ func DefaultStyles() Styles {
 	return Styles{
 		Header: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#8BE9FD")).
-			Background(lipgloss.Color("#282A36")).
+			Foreground(lipgloss.Color("#F8F8F2")).
+			Background(lipgloss.Color("#BD93F9")).
 			Padding(0, 1),
 
 		Title: lipgloss.NewStyle().
@@ -43,6 +50,20 @@ func DefaultStyles() Styles {
 
 		Subtitle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6272A4")),
+
+		ActiveTab: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#F8F8F2")).
+			Background(lipgloss.Color("#6272A4")).
+			Padding(0, 2),
+
+		InactiveTab: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6272A4")).
+			Background(lipgloss.Color("#282A36")).
+			Padding(0, 2),
+
+		TabGap: lipgloss.NewStyle().
+			Background(lipgloss.Color("#282A36")),
 
 		FilterBar: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#F8F8F2")).
@@ -92,6 +113,18 @@ func DefaultStyles() Styles {
 			Background(lipgloss.Color("#6272A4")).
 			Padding(0, 1),
 
+		BadgeSecret: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#282A36")).
+			Background(lipgloss.Color("#FF79C6")).
+			Padding(0, 1),
+
+		BadgeIaC: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#282A36")).
+			Background(lipgloss.Color("#8BE9FD")).
+			Padding(0, 1),
+
 		ChainTree: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#BD93F9")),
 
@@ -112,13 +145,24 @@ func DefaultStyles() Styles {
 			Background(lipgloss.Color("#44475A")),
 
 		DetailPanel: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
+			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#BD93F9")).
 			Padding(1, 2),
+
+		ModalBox: lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("#50FA7B")).
+			Background(lipgloss.Color("#282A36")).
+			Padding(1, 3),
+
+		ReasonBox: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#FFB86C")).
+			Padding(0, 1),
 	}
 }
 
-// RenderSeverityBadge returns a colored Lipgloss badge for severity string.
+// RenderSeverityBadge returns a colored Lipgloss badge for severity string with Nerd Fonts icon.
 func RenderSeverityBadge(sev string, s Styles) string {
 	switch strings.ToLower(strings.TrimSpace(sev)) {
 	case "critical":
@@ -129,11 +173,11 @@ func RenderSeverityBadge(sev string, s Styles) string {
 		return s.BadgeMedium.Render("󰀦 MEDIUM")
 	case "low":
 		return s.BadgeLow.Render("󰌵 LOW")
+	case "secret":
+		return s.BadgeSecret.Render("󰌆 SECRET")
+	case "iac":
+		return s.BadgeIaC.Render("󰒍 IAC ISSUE")
 	default:
 		return s.BadgeUnknown.Render("UNKNOWN")
 	}
-}
-
-func stringsToLower(s string) string {
-	return lipgloss.NewStyle().Render(s) // placeholder helper if needed
 }
