@@ -338,18 +338,28 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.recalculateViewports()
 		case "1":
 			m.activeTab = TabVulnerabilities
+			m.selectedIdx = 0
+			m.vulnTable.SetCursor(0)
 			m.applyFilters()
 		case "2":
 			m.activeTab = TabSecrets
+			m.selectedIdx = 0
+			m.vulnTable.SetCursor(0)
 			m.applyFilters()
 		case "3":
 			m.activeTab = TabIaC
+			m.selectedIdx = 0
+			m.vulnTable.SetCursor(0)
 			m.applyFilters()
 		case "4":
 			m.activeTab = TabLicenses
+			m.selectedIdx = 0
+			m.vulnTable.SetCursor(0)
 			m.applyFilters()
 		case "5":
 			m.activeTab = TabDependencyGraph
+			m.selectedIdx = 0
+			m.vulnTable.SetCursor(0)
 			m.applyFilters()
 		case "g":
 			m.groupMode = (m.groupMode + 1) % 3
@@ -667,11 +677,16 @@ func (m *Model) updateTableLayout() {
 }
 
 func (m *Model) updateSelectedPaneContents() {
-	if len(m.filteredItems) == 0 || m.selectedIdx >= len(m.filteredItems) {
-		m.reasonVP.SetContent("No item selected.")
+	if len(m.filteredItems) == 0 {
+		m.reasonVP.SetContent("No findings in this category.")
 		m.chainVP.SetContent("No dependency chain available.")
 		m.detailVP.SetContent("No detailed inspection content.")
 		return
+	}
+
+	if m.selectedIdx < 0 || m.selectedIdx >= len(m.filteredItems) {
+		m.selectedIdx = 0
+		m.vulnTable.SetCursor(0)
 	}
 
 	item := m.filteredItems[m.selectedIdx]
