@@ -14,6 +14,24 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// ViewState represents the active screen/mode of the TUI.
+type ViewState int
+
+const (
+	StateScanning ViewState = iota
+	StateExplorer
+	StateDetail
+)
+
+// GroupMode represents how vulnerabilities are grouped in the explorer.
+type GroupMode int
+
+const (
+	GroupFlat GroupMode = iota
+	GroupPackage
+	GroupSeverity
+)
+
 // TickMsg is sent periodically to trigger re-renders
 type TickMsg struct {
 	time time.Time
@@ -32,10 +50,12 @@ type ScanProgress struct {
 // VulnEntry represents a vulnerability for display in the TUI
 type VulnEntry struct {
 	Package        string
+	Version        string
 	CVE            string   // Primary ID (CVE-* or GHSA-*)
 	CVEID          string   // CVE-YYYY-*** from MITRE if available
 	Severity       string
 	CVSS           float64
+	CVSSVector     string
 	Description    string
 	CVETitle       string   // Title from MITRE/NVD
 	CVEDescription string   // Description from MITRE/NVD
@@ -43,19 +63,27 @@ type VulnEntry struct {
 	DependencyPath []string // Full path from root to vulnerable package
 }
 
-// Model represents the TUI state
+// Model represents the interactive TUI state
 type Model struct {
-	progress     ScanProgress
-	startTime    time.Time
-	result       *ScanResult  // Final scan result to display
-	vulns        []VulnEntry  // Dynamic list of found vulnerabilities
-	spinner      spinner.Model
-	progressBar  progress.Model
-	vulnTable    table.Model
-	viewport     viewport.Model
-	width        int
-	height       int
-	mu           sync.Mutex
+	state          ViewState
+	progress       ScanProgress
+	startTime      time.Time
+	result         *ScanResult  // Final scan result to display
+	vulns          []VulnEntry  // Full list of found vulnerabilities
+	filteredVulns  []VulnEntry  // Filtered list based on search/severity
+	spinner        spinner.Model
+	progressBar    progress.Model
+	vulnTable      table.Model
+	viewport       viewport.Model
+	styles         Styles
+	width          int
+	height         int
+	selectedIdx    int
+	filterSeverity string     // "", "critical", "high", "medium", "low"
+	searchQuery    string
+	isSearching    bool
+	groupMode      GroupMode
+	mu             sync.Mutex
 }
 
 // ScanResult holds the completed scan results for display
@@ -65,6 +93,110 @@ type ScanResult struct {
 	HighVulns     int
 	MediumVulns   int
 	LowVulns      int
+	SecretCount   int
+}
+
+// ProgressMsg updates scan progress
+type ProgressMsg struct {
+	Progress ScanProgress
+}
+
+// VulnMsg adds a vulnerability entry
+type VulnMsg struct {
+	Entry VulnEntry
+}
+
+// DoneMsg indicates scan completion
+type DoneMsg struct {
+	Result *ScanResult
+}
+
+// ErrorMsg indicates scan error
+type ErrorMsg struct {
+	Err string
+}
+
+// NewModel initializes the TUI model
+func NewModel() *Model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
+
+	p := progress.New(progress.WithDefaultGradient())
+
+	// Initialize empty table
+	columns := []table.Column{
+		{Title: "SEVERITY", Width: 10},
+		{Title: "PACKAGE", Width: 20},
+		{Title: "CVE / ID", Width: 18},
+		{Title: "TITLE / DESCRIPTION", Width: 45},
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithFocused(true),
+		table.WithHeight(12),
+	)
+
+	tStyle := table.DefaultStyles()
+	tStyle.Header = tStyle.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(true)
+	tStyle.Selected = tStyle.Selected.
+		Foreground(lipgloss.Color("229")).
+		Background(lipgloss.Color("57")).
+		Bold(true)
+	t.SetStyles(tStyle)
+
+	vp := viewport.New(80, 20)
+
+	return &Model{
+		state:       StateScanning,
+		startTime:   time.Now(),
+		spinner:     s,
+		progressBar: p,
+		vulnTable:   t,
+		viewport:    vp,
+		styles:      DefaultStyles(),
+		width:       100,
+		height:      30,
+	}
+}
+
+// SetProgress updates scan progress state
+func (m *Model) SetProgress(current, total int, currentPkg string, vulns int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.progress.Current = current
+	m.progress.Total = total
+	m.progress.CurrentPkg = currentPkg
+	m.progress.CurrentVulns = vulns
+}
+
+// AddVulnerability adds a detected vulnerability entry
+func (m *Model) AddVulnerability(entry VulnEntry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.vulns = append(m.vulns, entry)
+}
+
+// SetDone marks scanning as finished and enables interactive exploration mode
+func (m *Model) SetDone(result *ScanResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.progress.Completed = true
+	m.result = result
+	m.state = StateExplorer
+	m.applyFiltersLocked()
+}
+
+// SetError marks scanning as failed
+func (m *Model) SetError(err string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.progress.Error = err
 }
 
 // Init initializes the model
@@ -72,101 +204,311 @@ func (m *Model) Init() tea.Cmd {
 	return ticker()
 }
 
-// ticker returns a command that sends a tick message every 100ms
 func ticker() tea.Cmd {
 	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
 		return TickMsg{time: t}
 	})
 }
 
-// Update handles messages
+// Update handles UI events and state transitions
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if msg.String() == "q" || msg.String() == "ctrl+c" {
-			return m, tea.Quit
-		}
-		// Handle table/viewport navigation if needed
-		if m.vulnTable.Focused() {
-			var cmd tea.Cmd
-			m.vulnTable, cmd = m.vulnTable.Update(msg)
-			return m, cmd
-		}
+		return m.handleKeyPress(msg)
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.viewport.Width = msg.Width
-		m.viewport.Height = msg.Height - 10 // Reserve space for header/progress
-		m.updateTable()
+		m.viewport.Width = msg.Width - 4
+		m.viewport.Height = msg.Height - 10
+		m.updateTableLayout()
 		return m, nil
 	case ProgressMsg:
 		m.mu.Lock()
 		m.progress = msg.Progress
 		m.mu.Unlock()
-		m.updateTable()
-		// Update progress bar
-		if m.progress.Total > 0 {
-			percent := float64(m.progress.Current) / float64(m.progress.Total)
-			if percent > 1.0 {
-				percent = 1.0
-			}
-			m.progressBar.SetPercent(percent)
-		}
+		m.updateTableLayout()
 		return m, ticker()
 	case VulnMsg:
 		m.mu.Lock()
 		m.vulns = append(m.vulns, msg.Entry)
 		m.mu.Unlock()
-		m.updateTable()
+		m.applyFilters()
 		return m, ticker()
 	case DoneMsg:
 		m.mu.Lock()
 		m.progress.Completed = true
 		m.result = msg.Result
+		m.state = StateExplorer
 		m.mu.Unlock()
-		return m, tea.Quit
+		m.applyFilters()
+		return m, nil
 	case ErrorMsg:
 		m.mu.Lock()
 		m.progress.Error = msg.Err
 		m.mu.Unlock()
 		return m, tea.Quit
 	case TickMsg:
-		// Update spinner
 		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		// Ticker tick - just re-render by returning model with ticker cmd
-		return m, tea.Batch(cmd, ticker())
+		if m.state == StateScanning {
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, tea.Batch(cmd, ticker())
+		}
+		return m, nil
 	}
 	return m, nil
 }
 
-// View renders the UI
+func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	// Quit hotkeys
+	if key == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	// Search mode typing
+	if m.isSearching {
+		switch key {
+		case "enter", "esc":
+			m.isSearching = false
+			return m, nil
+		case "backspace":
+			if len(m.searchQuery) > 0 {
+				m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+				m.applyFilters()
+			}
+			return m, nil
+		default:
+			if len(key) == 1 {
+				m.searchQuery += key
+				m.applyFilters()
+			}
+			return m, nil
+		}
+	}
+
+	switch m.state {
+	case StateScanning:
+		if key == "q" {
+			return m, tea.Quit
+		}
+
+	case StateExplorer:
+		switch key {
+		case "q":
+			return m, tea.Quit
+		case "enter":
+			if len(m.filteredVulns) > 0 && m.selectedIdx < len(m.filteredVulns) {
+				m.state = StateDetail
+				m.updateDetailViewport()
+			}
+		case "1":
+			m.filterSeverity = "critical"
+			m.applyFilters()
+		case "2":
+			m.filterSeverity = "high"
+			m.applyFilters()
+		case "3":
+			m.filterSeverity = "medium"
+			m.applyFilters()
+		case "4":
+			m.filterSeverity = "low"
+			m.applyFilters()
+		case "0", "a":
+			m.filterSeverity = ""
+			m.applyFilters()
+		case "/":
+			m.isSearching = true
+			m.searchQuery = ""
+		case "g":
+			m.groupMode = (m.groupMode + 1) % 3
+			m.applyFilters()
+		case "esc":
+			m.searchQuery = ""
+			m.filterSeverity = ""
+			m.applyFilters()
+		case "up", "k":
+			if m.selectedIdx > 0 {
+				m.selectedIdx--
+				m.vulnTable.SetCursor(m.selectedIdx)
+			}
+		case "down", "j":
+			if m.selectedIdx < len(m.filteredVulns)-1 {
+				m.selectedIdx++
+				m.vulnTable.SetCursor(m.selectedIdx)
+			}
+		}
+
+	case StateDetail:
+		switch key {
+		case "esc", "q", "backspace":
+			m.state = StateExplorer
+		case "up", "k":
+			m.viewport.LineUp(1)
+		case "down", "j":
+			m.viewport.LineDown(1)
+		}
+	}
+
+	return m, nil
+}
+
+func (m *Model) applyFilters() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.applyFiltersLocked()
+}
+
+func (m *Model) applyFiltersLocked() {
+	var result []VulnEntry
+	search := strings.ToLower(strings.TrimSpace(m.searchQuery))
+
+	for _, v := range m.vulns {
+		// Severity filter
+		if m.filterSeverity != "" {
+			if !strings.EqualFold(v.Severity, m.filterSeverity) {
+				continue
+			}
+		}
+
+		// Text search filter
+		if search != "" {
+			matchPkg := strings.Contains(strings.ToLower(v.Package), search)
+			matchCVE := strings.Contains(strings.ToLower(v.CVE), search) || strings.Contains(strings.ToLower(v.CVEID), search)
+			matchTitle := strings.Contains(strings.ToLower(v.CVETitle), search) || strings.Contains(strings.ToLower(v.Description), search)
+			if !matchPkg && !matchCVE && !matchTitle {
+				continue
+			}
+		}
+
+		result = append(result, v)
+	}
+
+	m.filteredVulns = result
+	if m.selectedIdx >= len(m.filteredVulns) {
+		m.selectedIdx = 0
+	}
+	m.updateTableLayout()
+}
+
+func (m *Model) updateTableLayout() {
+	var rows []table.Row
+	for _, v := range m.filteredVulns {
+		cveDisp := v.CVE
+		if v.CVEID != "" {
+			cveDisp = v.CVEID
+		}
+		title := v.Description
+		if title == "" {
+			title = v.CVETitle
+		}
+		if len(title) > 40 {
+			title = title[:37] + "..."
+		}
+
+		rows = append(rows, table.Row{
+			strings.ToUpper(v.Severity),
+			v.Package,
+			cveDisp,
+			title,
+		})
+	}
+
+	m.vulnTable.SetRows(rows)
+}
+
+func (m *Model) updateDetailViewport() {
+	if len(m.filteredVulns) == 0 || m.selectedIdx >= len(m.filteredVulns) {
+		return
+	}
+
+	v := m.filteredVulns[m.selectedIdx]
+	var b strings.Builder
+
+	// Header section
+	b.WriteString(m.styles.Title.Render(fmt.Sprintf("󰍉 VULNERABILITY DETAILS: %s", v.Package)) + "\n\n")
+
+	cveDisp := v.CVE
+	if v.CVEID != "" {
+		cveDisp = fmt.Sprintf("%s (%s)", v.CVEID, v.CVE)
+	}
+
+	badge := RenderSeverityBadge(v.Severity, m.styles)
+	cvssStr := fmt.Sprintf("%.1f", v.CVSS)
+	if v.CVSS == 0 {
+		cvssStr = "N/A"
+	}
+
+	b.WriteString(fmt.Sprintf("  %-16s %s\n", "Severity:", badge))
+	b.WriteString(fmt.Sprintf("  %-16s %s\n", "CVSS Score:", cvssStr))
+	b.WriteString(fmt.Sprintf("  %-16s %s\n", "CVE / Primary ID:", cveDisp))
+	if v.PublishedAt != "" {
+		b.WriteString(fmt.Sprintf("  %-16s %s\n", "Published Date:", v.PublishedAt))
+	}
+	b.WriteString("\n")
+
+	// Description section
+	b.WriteString(m.styles.Title.Render("󰈔 Description") + "\n")
+	desc := v.CVEDescription
+	if desc == "" {
+		desc = v.Description
+	}
+	if desc == "" {
+		desc = "No detailed description available."
+	}
+	b.WriteString(desc + "\n\n")
+
+	// Dependency Chain Tree section
+	b.WriteString(m.styles.Title.Render("󰒍 Dependency Chain Path") + "\n")
+	if len(v.DependencyPath) > 0 {
+		for i, nodeName := range v.DependencyPath {
+			indent := strings.Repeat("    ", i)
+			prefix := "└── "
+			if i == 0 {
+				prefix = "󰏖 Root: "
+				b.WriteString(fmt.Sprintf("%s%s%s\n", indent, prefix, m.styles.ChainNode.Render(nodeName)))
+			} else if i == len(v.DependencyPath)-1 {
+				b.WriteString(fmt.Sprintf("%s%s%s [VULNERABLE]\n", indent, prefix, m.styles.ChainTarget.Render(nodeName)))
+			} else {
+				b.WriteString(fmt.Sprintf("%s%s%s\n", indent, prefix, m.styles.ChainTree.Render(nodeName)))
+			}
+		}
+	} else {
+		b.WriteString(fmt.Sprintf("  └── %s (Direct Dependency)\n", v.Package))
+	}
+
+	b.WriteString("\n" + m.styles.Subtitle.Render("Press [Esc] or [q] to return to list view"))
+
+	m.viewport.SetContent(b.String())
+}
+
+// View renders the TUI screen depending on current state
 func (m *Model) View() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if m.progress.Completed {
-		return m.renderCompleted()
-	}
 
 	if m.progress.Error != "" {
 		return m.renderError()
 	}
 
-	return m.renderScanning()
+	switch m.state {
+	case StateScanning:
+		return m.renderScanning()
+	case StateExplorer:
+		return m.renderExplorer()
+	case StateDetail:
+		return m.renderDetail()
+	default:
+		return m.renderScanning()
+	}
 }
 
 func (m *Model) renderScanning() string {
 	var sections []string
 
-	// Header with spinner
-	header := m.spinner.View() + " " + lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("33")).
-		Render("Vigil Scanning...")
-	sections = append(sections, header)
+	header := m.spinner.View() + " " + m.styles.Header.Render("Vigil Vulnerability Scanner")
+	sections = append(sections, header, "")
 
-	// Progress bar (custom manual bar to ensure visibility)
 	if m.progress.Total > 0 {
 		percent := float64(m.progress.Current) / float64(m.progress.Total)
 		if percent > 1.0 {
@@ -174,378 +516,81 @@ func (m *Model) renderScanning() string {
 		}
 		width := 40
 		filled := int(percent * float64(width))
-		if filled > width {
-			filled = width
-		}
 		bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-		bar = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(bar)
-		progressView := fmt.Sprintf("%s %d%% (%d/%d)", bar, int(percent*100), m.progress.Current, m.progress.Total)
+		progressView := fmt.Sprintf("[%s] %d%% (%d/%d packages)", bar, int(percent*100), m.progress.Current, m.progress.Total)
 		sections = append(sections, progressView)
 	}
 
-	// Current package
 	if m.progress.CurrentPkg != "" {
-		pkgLine := fmt.Sprintf("Scanning: %s",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(m.progress.CurrentPkg))
-		sections = append(sections, pkgLine)
+		sections = append(sections, fmt.Sprintf("Scanning: %s", m.styles.Subtitle.Render(m.progress.CurrentPkg)))
 	}
 
 	// Elapsed time
 	elapsed := time.Since(m.startTime).Seconds()
-	sections = append(sections, fmt.Sprintf("⏱  Elapsed: %.0fs", elapsed))
+	sections = append(sections, fmt.Sprintf("󰥔  Elapsed: %.0fs | Found: %d vulnerabilities", elapsed, len(m.vulns)))
 
-	// Vulnerabilities found counter
-	if m.progress.CurrentVulns > 0 {
-		vulnCount := fmt.Sprintf("🚨 Vulnerabilities found: %s",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(fmt.Sprint(m.progress.CurrentVulns)))
-		sections = append(sections, vulnCount)
-	}
-
-	// Dynamic vulnerability table
 	if len(m.vulns) > 0 {
-		sections = append(sections, "")
-		sections = append(sections, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33")).Render("📋 Vulnerabilities Found:"))
-		sections = append(sections, m.vulnTable.View())
+		sections = append(sections, "", m.styles.Title.Render("󰍜 Vulnerabilities Stream:"), m.vulnTable.View())
 	}
 
-	sections = append(sections, "")
-	sections = append(sections, "Press q to quit")
+	sections = append(sections, "", m.styles.Subtitle.Render("Press q to cancel"))
+	return strings.Join(sections, "\n")
+}
+
+func (m *Model) renderExplorer() string {
+	var sections []string
+
+	// Header banner
+	header := m.styles.Header.Render(fmt.Sprintf("󰒍 VIGIL SECURITY EXPLORER - %d VULNERABILITIES DETECTED", len(m.vulns)))
+	sections = append(sections, header)
+
+	// Filter & Search bar
+	filterStr := "ALL"
+	if m.filterSeverity != "" {
+		filterStr = strings.ToUpper(m.filterSeverity)
+	}
+	searchStr := "none"
+	if m.searchQuery != "" {
+		searchStr = fmt.Sprintf("%q", m.searchQuery)
+	}
+	if m.isSearching {
+		searchStr = fmt.Sprintf("%q █", m.searchQuery)
+	}
+
+	filterBar := fmt.Sprintf("Filter: [%s] | Search: %s | Showing %d of %d vulnerabilities",
+		m.styles.KeyHint.Render(filterStr),
+		m.styles.SearchPrompt.Render(searchStr),
+		len(m.filteredVulns),
+		len(m.vulns),
+	)
+	sections = append(sections, m.styles.FilterBar.Render(filterBar), "")
+
+	// Table or Empty view
+	if len(m.filteredVulns) > 0 {
+		sections = append(sections, m.vulnTable.View())
+	} else {
+		sections = append(sections, m.styles.Subtitle.Render("  No vulnerabilities match current filter/search criteria."))
+	}
+
+	// Hotkeys Status Bar Footer
+	footer := m.styles.StatusBar.Render(
+		"[1-4] Severity | [/] Search | [Enter] Inspect Detail | [g] Group | [Esc] Reset | [q] Quit",
+	)
+	sections = append(sections, "", footer)
 
 	return strings.Join(sections, "\n")
 }
 
-// updateTable rebuilds the table with current vulnerabilities
-func (m *Model) updateTable() {
-	if len(m.vulns) == 0 {
-		return
-	}
-
-	// Calculate available width (reserve some space for margins)
-	availableWidth := m.width - 4
-	if availableWidth < 80 {
-		availableWidth = 80
-	}
-
-	// Build table rows
-	var rows []table.Row
-	// Show last 20 vulnerabilities
-	start := len(m.vulns) - 20
-	if start < 0 {
-		start = 0
-	}
-
-	for i := start; i < len(m.vulns); i++ {
-		v := m.vulns[i]
-		
-		// Format dependency path
-		pathStr := ""
-		if len(v.DependencyPath) > 0 {
-			// Show path: root -> dep1 -> dep2 -> vulnerable
-			pathParts := make([]string, len(v.DependencyPath))
-			for j, p := range v.DependencyPath {
-				// Truncate long package names
-				if len(p) > 15 {
-					pathParts[j] = p[:12] + "..."
-				} else {
-					pathParts[j] = p
-				}
-			}
-			pathStr = strings.Join(pathParts, " → ")
-		}
-
-		// Format CVE ID
-		cveDisplay := v.CVE
-		if v.CVEID != "" {
-			cveDisplay = v.CVEID
-		}
-
-		// Format CVSS
-		cvssStr := "-"
-		if v.CVSS > 0 {
-			cvssStr = fmt.Sprintf("%.1f", v.CVSS)
-		}
-
-		// Format package name
-		pkgDisplay := v.Package
-
-		// Format severity - use readable text (plain text for table compatibility)
-		severityText := strings.ToLower(strings.TrimSpace(v.Severity))
-		if severityText == "" {
-			severityText = "unknown"
-		}
-		// Capitalize first letter properly
-		if len(severityText) > 0 {
-			severityText = strings.ToUpper(severityText[:1]) + severityText[1:]
-		}
-
-		// Format title - use Description or CVETitle (short description), fallback to CVE ID
-		titleDisplay := ""
-		if v.Description != "" {
-			// Use Description as title (it's usually a short sentence)
-			titleDisplay = v.Description
-		} else if v.CVETitle != "" {
-			titleDisplay = v.CVETitle
-		}
-		
-		// Truncate if too long
-		if len(titleDisplay) > 60 {
-			// Try to truncate at sentence end
-			truncated := titleDisplay[:60]
-			if lastDot := strings.LastIndex(truncated, "."); lastDot > 40 {
-				titleDisplay = truncated[:lastDot+1]
-			} else {
-				titleDisplay = truncated[:57] + "..."
-			}
-		}
-		
-		// Fallback to CVE ID if no title available
-		if titleDisplay == "" {
-			if v.CVEID != "" {
-				titleDisplay = v.CVEID
-			} else {
-				titleDisplay = v.CVE
-			}
-		}
-
-		// Format published date
-		dateStr := "-"
-		if v.PublishedAt != "" {
-			dateStr = v.PublishedAt
-		}
-
-		rows = append(rows, table.Row{
-			severityText,
-			pkgDisplay,
-			cveDisplay,
-			cvssStr,
-			titleDisplay,
-			dateStr,
-			pathStr,
-		})
-	}
-
-	// Calculate column widths dynamically based on available space
-	severityWidth := 10
-	cveWidth := 18
-	cvssWidth := 6
-	dateWidth := 12
-	titleWidth := 35
-	pkgWidth := min(25, (availableWidth-severityWidth-cveWidth-cvssWidth-dateWidth-titleWidth-40)/2)
-	pathWidth := availableWidth - severityWidth - pkgWidth - cveWidth - cvssWidth - dateWidth - titleWidth - 4
-
-	// Define columns
-	columns := []table.Column{
-		{Title: "Severity", Width: severityWidth},
-		{Title: "Package", Width: pkgWidth},
-		{Title: "CVE ID", Width: cveWidth},
-		{Title: "CVSS", Width: cvssWidth},
-		{Title: "Title", Width: max(titleWidth, 20)},
-		{Title: "Published", Width: dateWidth},
-		{Title: "Dependency Path", Width: max(pathWidth, 15)},
-	}
-
-	// Create table
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(false),
-		table.WithHeight(min(len(rows)+1, 15)),
-	)
-	// Do not select any row to avoid highlight bar
-	t.SetCursor(-1)
-
-	// Style table
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		BorderBottom(true).
-		Bold(true)
-	// Remove selected-row styling to avoid highlight bar
-	s.Selected = lipgloss.NewStyle()
-	t.SetStyles(s)
-
-	m.vulnTable = t
-}
-
-// max returns the maximum of two integers
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// getSeverityColor returns color for severity level
-func getSeverityColor(severity string) lipgloss.Color {
-	severityLower := strings.ToLower(severity)
-	switch severityLower {
-	case "critical":
-		return lipgloss.Color("196") // bright red
-	case "high":
-		return lipgloss.Color("208") // orange
-	case "medium":
-		return lipgloss.Color("226") // yellow
-	case "low":
-		return lipgloss.Color("33") // blue
-	case "unknown":
-		return lipgloss.Color("240") // grey for unknown
-	default:
-		// Try to match partial strings
-		if strings.Contains(severityLower, "critical") {
-			return lipgloss.Color("196")
-		}
-		if strings.Contains(severityLower, "high") {
-			return lipgloss.Color("208")
-		}
-		if strings.Contains(severityLower, "medium") {
-			return lipgloss.Color("226")
-		}
-		if strings.Contains(severityLower, "low") {
-			return lipgloss.Color("33")
-		}
-		return lipgloss.Color("240") // grey for unknown/unrecognized
-	}
-}
-
-func (m *Model) renderCompleted() string {
+func (m *Model) renderDetail() string {
 	var sections []string
 
-	elapsed := time.Since(m.startTime).Seconds()
-	header := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("42")).
-		Render(fmt.Sprintf("✓ Scan complete! (%.0fs)", elapsed))
-	sections = append(sections, header)
-
-	if m.result != nil {
-		if m.result.TotalVulns == 0 {
-			sections = append(sections, lipgloss.NewStyle().
-				Foreground(lipgloss.Color("42")).
-				Render("✓ No vulnerabilities found"))
-		} else {
-			sections = append(sections, "")
-			sections = append(sections, "Vulnerabilities found:")
-			if m.result.CriticalVulns > 0 {
-				sections = append(sections, fmt.Sprintf("  🔴 Critical:  %d", m.result.CriticalVulns))
-			}
-			if m.result.HighVulns > 0 {
-				sections = append(sections, fmt.Sprintf("  🟠 High:      %d", m.result.HighVulns))
-			}
-			if m.result.MediumVulns > 0 {
-				sections = append(sections, fmt.Sprintf("  🟡 Medium:    %d", m.result.MediumVulns))
-			}
-			if m.result.LowVulns > 0 {
-				sections = append(sections, fmt.Sprintf("  🔵 Low:       %d", m.result.LowVulns))
-			}
-			sections = append(sections, fmt.Sprintf("  Total: %d vulnerabilities", m.result.TotalVulns))
-		}
-	}
-
-	// Show vulnerability table if there are any
-	if len(m.vulns) > 0 {
-		sections = append(sections, "")
-		sections = append(sections, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33")).Render("📋 Vulnerabilities Found:"))
-		sections = append(sections, m.vulnTable.View())
-	}
-
-	sections = append(sections, "")
-	sections = append(sections, "Press q to exit")
+	header := m.styles.Header.Render("󰍉 VIGIL SECURITY DEEP INSPECTOR")
+	sections = append(sections, header, "")
+	sections = append(sections, m.viewport.View())
 
 	return strings.Join(sections, "\n")
 }
 
 func (m *Model) renderError() string {
-	return lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("196")).
-		Render(fmt.Sprintf("✗ Error: %s\n", m.progress.Error))
+	return fmt.Sprintf("\n[!] Vigil Error: %s\nPress q to exit.\n", m.progress.Error)
 }
-
-// Message types
-type ProgressMsg struct {
-	Progress ScanProgress
-}
-
-type VulnMsg struct {
-	Entry VulnEntry
-}
-
-type DoneMsg struct {
-	Result *ScanResult
-}
-
-type ErrorMsg struct {
-	Err string
-}
-
-// NewModel creates a new model
-func NewModel() *Model {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
-
-	// Initialize progress bar with solid color for better visibility
-	p := progress.New(
-		progress.WithWidth(40),
-		progress.WithSolidFill("#FF6B6B"), // Red color for filled portion
-	)
-	p.Width = 40
-	p.ShowPercentage = false // Don't show percentage in the bar itself, we'll add it manually
-	p.Full = '█'
-	p.Empty = '░'
-
-	// Initialize empty table
-	columns := []table.Column{
-		{Title: "Severity", Width: 10},
-		{Title: "Package", Width: 25},
-		{Title: "CVE ID", Width: 18},
-		{Title: "CVSS", Width: 6},
-		{Title: "Title", Width: 35},
-		{Title: "Published", Width: 12},
-		{Title: "Dependency Path", Width: 50},
-	}
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows([]table.Row{}),
-		table.WithFocused(false),
-		table.WithHeight(5),
-	)
-
-	// Style table
-	tableStyles := table.DefaultStyles()
-	tableStyles.Header = tableStyles.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		BorderBottom(true).
-		Bold(true)
-	// Disable row highlight (purple bar) to keep table clean
-	tableStyles.Selected = tableStyles.Selected.
-		Foreground(lipgloss.Color("")). // no override
-		Background(lipgloss.Color("")). // transparent
-		Bold(false)
-	t.SetStyles(tableStyles)
-
-	// Initialize viewport
-	vp := viewport.New(80, 20)
-
-	return &Model{
-		startTime:   time.Now(),
-		progress:    ScanProgress{},
-		spinner:     s,
-		progressBar: p,
-		vulnTable:   t,
-		viewport:    vp,
-		width:       80,
-		height:      24,
-	}
-}
-
