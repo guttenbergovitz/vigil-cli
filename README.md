@@ -10,9 +10,12 @@ Analyses dependency trees and reports CVE exposure with context, enriched CVSS s
 # Install
 go install github.com/guttenbergovitz/vigil-cli/cmd/vigil@latest
 
-# Scan project
+# Scan local project
 cd /path/to/your/node/project
 vigil scan .
+
+# Scan remote repository
+vigil scan https://github.com/user/repo
 
 # View report
 vigil report
@@ -20,6 +23,7 @@ vigil report
 
 ## Features
 
+- **Remote repository scanning** - Scan GitHub, Bitbucket, and other git repositories directly without cloning manually
 - **Full dependency chain tracking** - Shows complete vulnerability paths for all lock file types (npm, Yarn, pnpm)
 - **Temporal filtering** - Eliminates 30-40% false positives by filtering vulnerabilities published before package release
 - **Multi-source CVSS enrichment** - Aggregates scores from NVD, GitHub Security Advisories, and OSV
@@ -62,10 +66,21 @@ See [Installation Guide](documentation/getting-started/installation.md) for deta
 ### Scan Dependencies
 
 ```bash
+# Scan local project
 vigil scan .
+
+# Scan remote repository (GitHub, Bitbucket, etc)
+vigil scan https://github.com/user/repo
+vigil scan git@github.com:user/repo.git
 ```
 
 Interactive TUI shows real-time progress and vulnerability table.
+
+**Remote scanning:**
+- Clones repository to temp directory
+- Scans lockfile
+- Automatic cleanup after scan
+- Uses `GITHUB_TOKEN` env var for private repos
 
 ### Generate Report
 

@@ -14,7 +14,7 @@ vigil scan [path] [flags]
 
 ### Arguments
 
-- `path` - Project directory to scan (default: current directory)
+- `path` - Project directory or git repository URL to scan (default: current directory)
 
 ### Flags
 
@@ -49,12 +49,48 @@ vigil scan .
 # Scan specific project
 vigil scan /path/to/project
 
+# Scan remote repository (public)
+vigil scan https://github.com/user/repo
+
+# Scan remote repository (private, requires GITHUB_TOKEN)
+export GITHUB_TOKEN=ghp_xxxxx
+vigil scan https://github.com/user/private-repo
+
+# Scan via SSH
+vigil scan git@github.com:user/repo.git
+
 # Scan and export
 vigil scan . --output json
 
 # Production dependencies only
 vigil scan . --skip-devdeps
 ```
+
+### Remote Scanning
+
+Vigil can scan repositories directly without manual cloning:
+
+**Supported protocols:**
+- `https://` - HTTPS URLs (GitHub, Bitbucket, GitLab)
+- `http://` - HTTP URLs
+- `git@` - SSH URLs
+- `ssh://` - SSH URLs
+
+**Authentication:**
+- Public repos: No authentication needed
+- Private GitHub repos: Set `GITHUB_TOKEN` environment variable
+- SSH repos: Uses system SSH keys from `~/.ssh`
+
+**Behaviour:**
+1. Clone repository to temp directory (`--depth 1`)
+2. Scan lockfile from cloned repo
+3. Automatic cleanup after scan completes
+
+**Notes:**
+- Only the lockfile is needed (no `node_modules` required)
+- Shallow clone used for speed (`--depth 1`)
+- Temp directory cleaned up even on error
+- For HTTPS URLs with `GITHUB_TOKEN`, token is injected into clone URL
 
 ### Rate Limiting
 

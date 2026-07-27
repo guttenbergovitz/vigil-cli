@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/guttenbergovitz/vigil-cli/internal/export"
+	"github.com/guttenbergovitz/vigil-cli/internal/git"
 	"github.com/guttenbergovitz/vigil-cli/internal/lockfile"
 	"github.com/guttenbergovitz/vigil-cli/internal/scan"
 	"github.com/guttenbergovitz/vigil-cli/internal/types"
@@ -33,10 +34,27 @@ func Scan(args []string) error {
 
 	projectPath := fs.Arg(0)
 
-	// Resolve absolute path
-	absPath, err := filepath.Abs(projectPath)
-	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
+	var absPath string
+	var cleanup func()
+
+	// Check if projectPath is a git URL
+	if git.IsGitURL(projectPath) {
+		fmt.Printf("Cloning repository: %s\n", projectPath)
+		clonedPath, cleanupFn, err := git.CloneToTemp(projectPath)
+		if err != nil {
+			return fmt.Errorf("clone repository: %w", err)
+		}
+		absPath = clonedPath
+		cleanup = cleanupFn
+		defer cleanup()
+		fmt.Printf("Repository cloned to: %s\n", absPath)
+	} else {
+		// Resolve absolute path for local directory
+		var err error
+		absPath, err = filepath.Abs(projectPath)
+		if err != nil {
+			return fmt.Errorf("resolve path: %w", err)
+		}
 	}
 
 	// Find lock file
