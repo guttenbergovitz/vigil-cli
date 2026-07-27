@@ -1,0 +1,28 @@
+version = 1
+revision = 1
+requires-python = ">=3.11"
+
+[[package]]
+name = "requests"
+version = "2.25.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "urllib3" },
+    { name = "idna" },
+]
+
+[[package]]
+name = "urllib3"
+version = "1.26.4"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "idna"
+version = "2.10"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pytest"
+version = "6.2.2"
+dev = true
+source = { registry = "https://pypi.org/simple" }

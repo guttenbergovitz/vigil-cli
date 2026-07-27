@@ -76,6 +76,48 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 			}
 			return nil, fmt.Errorf("failed to parse yarn.lock: %w", err)
 		}
+	case lockfile.UVLock:
+		graph, err = lockfile.ParseUVLockGraph(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse uv.lock: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse uv.lock: %w", err)
+		}
+	case lockfile.PoetryLock:
+		var deps *lockfile.Dependencies
+		deps, err = lockfile.ParsePoetryLock(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse poetry.lock: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse poetry.lock: %w", err)
+		}
+		graph = buildGraphFromDeps(deps, lockType.Ecosystem())
+	case lockfile.PipfileLock:
+		var deps *lockfile.Dependencies
+		deps, err = lockfile.ParsePipfileLock(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse Pipfile.lock: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse Pipfile.lock: %w", err)
+		}
+		graph = buildGraphFromDeps(deps, lockType.Ecosystem())
+	case lockfile.RequirementsTxt:
+		var deps *lockfile.Dependencies
+		deps, err = lockfile.ParseRequirementsTxt(lockf)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to parse requirements.txt: %v", err)
+			if reporter != nil {
+				reporter.Error(errMsg)
+			}
+			return nil, fmt.Errorf("failed to parse requirements.txt: %w", err)
+		}
+		graph = buildGraphFromDeps(deps, lockType.Ecosystem())
 	default:
 		return nil, fmt.Errorf("unsupported lock file type: %s", lockType)
 	}
@@ -323,4 +365,22 @@ func buildScanResultFromGraph(projectPath, lockFile, lockHash string, graph *typ
 	}
 
 	return result
+}
+
+// buildGraphFromDeps constructs a DependencyGraph from flat Dependencies for lockfiles without native graph support.
+func buildGraphFromDeps(deps *lockfile.Dependencies, ecosystem types.Ecosystem) *types.DependencyGraph {
+	graph := types.NewDependencyGraph()
+	graph.Ecosystem = ecosystem
+
+	for name, version := range deps.Production {
+		node := graph.AddNode(name, version, types.Production, true)
+		graph.Root = append(graph.Root, node.Name+"@"+node.Version)
+	}
+	for name, version := range deps.Development {
+		node := graph.AddNode(name, version, types.Development, true)
+		graph.Root = append(graph.Root, node.Name+"@"+node.Version)
+	}
+
+	graph.CalculateDepths()
+	return graph
 }

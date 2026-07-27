@@ -65,17 +65,36 @@ type QueryResponse struct {
 	} `json:"vulns"`
 }
 
-// Query retrieves vulnerabilities for a package from OSV API.
+// Query retrieves vulnerabilities for an npm package from OSV API.
 func (c *Client) Query(pkg, version string) ([]types.Vulnerability, error) {
+	return c.QueryWithEcosystem(pkg, version, types.EcosystemNPM)
+}
+
+// QueryWithEcosystem retrieves vulnerabilities for a package in a given ecosystem from OSV API.
+func (c *Client) QueryWithEcosystem(pkg, version string, ecosystem types.Ecosystem) ([]types.Vulnerability, error) {
 	req := QueryRequest{}
+	
+	purlType := "npm"
+	switch ecosystem {
+	case types.EcosystemPyPI:
+		purlType = "pypi"
+	case types.EcosystemGo:
+		purlType = "golang"
+	case types.EcosystemCargo:
+		purlType = "cargo"
+	case types.EcosystemPackagist:
+		purlType = "composer"
+	default:
+		purlType = "npm"
+	}
+
 	// Build PURL - handle scoped packages (@scope/name)
-	// PURL format: pkg:npm/%40scope/name@version (@ encoded as %40)
 	purl := pkg
 	if strings.HasPrefix(pkg, "@") {
 		// Scoped package - @ in scope part needs encoding in PURL
 		purl = strings.ReplaceAll(pkg, "@", "%40")
 	}
-	req.Package.PURL = fmt.Sprintf("pkg:npm/%s@%s", purl, version)
+	req.Package.PURL = fmt.Sprintf("pkg:%s/%s@%s", purlType, purl, version)
 
 	reqBody, err := json.Marshal(req)
 	if err != nil {
@@ -268,7 +287,15 @@ func CalculateRiskScoreWithDepth(severity types.Severity, inProduction bool, dep
 // ScanGraphVulnerabilities scans all nodes in dependency graph against OSV API.
 func (c *Client) ScanGraphVulnerabilities(graph *types.DependencyGraph) error {
 	for _, node := range graph.Nodes {
-		vulns, err := c.Query(node.Name, node.Version)
+		eco := node.Ecosystem
+		if eco == "" {
+			eco = graph.Ecosystem
+		}
+		if eco == "" {
+			eco = types.EcosystemNPM
+		}
+
+		vulns, err := c.QueryWithEcosystem(node.Name, node.Version, eco)
 		if err != nil {
 			// Log but continue
 			continue

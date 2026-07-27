@@ -1,0 +1,6 @@
+# Core production dependencies
+requests==2.25.0
+urllib3==1.26.4
+Flask==2.0.1; python_version >= '3.6'
+# Comment line
+gunicorn==20.1.0 --hash=sha256:12345

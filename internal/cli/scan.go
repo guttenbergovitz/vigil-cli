@@ -23,6 +23,7 @@ func Scan(args []string) error {
 	skipDevDeps := fs.Bool("skip-devdeps", false, "Skip development dependencies")
 	outputFmt := fs.String("output", "", "Output format (json, csv, markdown)")
 	noTUI := fs.Bool("no-tui", false, "Disable interactive TUI (useful for CI/testing)")
+	customLockFile := fs.String("lockfile", "", "Explicitly specify lockfile name (e.g. uv.lock, requirements.txt)")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -57,10 +58,42 @@ func Scan(args []string) error {
 		}
 	}
 
-	// Find lock file
-	lockFile, lockType, err := lockfile.FindLockFile(absPath)
-	if err != nil {
-		return fmt.Errorf("no lock file found in %s: %w\n\nSupported lock files: package-lock.json (npm), yarn.lock (yarn), pnpm-lock.yaml (pnpm)", absPath, err)
+	var lockFile string
+	var lockType lockfile.LockFileType
+
+	if *customLockFile != "" {
+		lockFile = *customLockFile
+		switch lockFile {
+		case "uv.lock":
+			lockType = lockfile.UVLock
+		case "poetry.lock":
+			lockType = lockfile.PoetryLock
+		case "Pipfile.lock":
+			lockType = lockfile.PipfileLock
+		case "requirements.txt":
+			lockType = lockfile.RequirementsTxt
+		case "package-lock.json":
+			lockType = lockfile.NPMLock
+		case "yarn.lock":
+			lockType = lockfile.YarnLock
+		case "pnpm-lock.yaml":
+			lockType = lockfile.PnpmLock
+		case "Cargo.lock":
+			lockType = lockfile.CargoLock
+		case "composer.lock":
+			lockType = lockfile.ComposerLock
+		case "go.mod":
+			lockType = lockfile.GoModLock
+		default:
+			return fmt.Errorf("unsupported custom lock file: %s", lockFile)
+		}
+	} else {
+		// Find lock file automatically
+		var err error
+		lockFile, lockType, err = lockfile.FindLockFile(absPath)
+		if err != nil {
+			return fmt.Errorf("no lock file found in %s: %w\n\nSupported lock files: uv.lock, poetry.lock, Pipfile.lock, requirements.txt, package-lock.json, yarn.lock, pnpm-lock.yaml, Cargo.lock, composer.lock, go.mod", absPath, err)
+		}
 	}
 
 	lockFilePath := filepath.Join(absPath, lockFile)

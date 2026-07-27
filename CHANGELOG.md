@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Python Ecosystem Support**
+  - Added support for Python lockfiles: `uv.lock`, `poetry.lock`, `Pipfile.lock`, and `requirements.txt`
+  - Integrated PyPI ecosystem in OSV API queries (`pkg:pypi/...`)
+  - Added `--lockfile` flag to explicitly specify lockfile
+- **Multi-Ecosystem Architecture**
+  - Added `types.Ecosystem` abstraction (`npm`, `PyPI`, `Go`, `Cargo`, `Packagist`)
+  - Priority lockfile auto-detection strategy
 - **Containerization & Nix Flake support** (ADR 003)
   - Multi-stage `Dockerfile` for minimal Alpine-based runtime (~20MB)
   - `flake.nix` with hermetic Go builds, development shell, and `nix run` support
