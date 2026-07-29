@@ -3,7 +3,9 @@ package ui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -158,19 +160,20 @@ func NewModel() *Model {
 	dVP := viewport.New(50, 10)
 
 	m := &Model{
-		activeTab:  TabVulnerabilities,
-		activePane: PaneTable,
-		state:      StateScanning,
-		startTime:  time.Now(),
-		spinner:    s,
-		progressBar: p,
-		vulnTable:  t,
-		reasonVP:   rVP,
-		chainVP:    cVP,
-		detailVP:   dVP,
-		styles:     DefaultStyles(),
-		width:      140,
-		height:     40,
+		activeTab:      TabVulnerabilities,
+		activePane:     PaneTable,
+		state:          StateScanning,
+		startTime:      time.Now(),
+		spinner:        s,
+		progressBar:    p,
+		vulnTable:      t,
+		reasonVP:       rVP,
+		chainVP:        cVP,
+		detailVP:       dVP,
+		styles:         DefaultStyles(),
+		width:          140,
+		height:         40,
+		filterSeverity: "critical,high", // Smart default: show Critical+High only
 	}
 	m.recalculateViewports()
 	return m
@@ -331,13 +334,6 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "q":
 			return m, tea.Quit
-		case "tab":
-			m.activePane = (m.activePane + 1) % 4
-		case "shift+tab":
-			m.activePane = (m.activePane + 3) % 4
-		case "w", "f":
-			m.isMaximized = !m.isMaximized
-			m.recalculateViewports()
 		case "1":
 			m.activeTab = TabVulnerabilities
 			m.selectedIdx = 0
@@ -383,6 +379,15 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "l":
 			m.filterSeverity = "low"
 			m.applyFilters()
+		case "y":
+			// Copy CVE ID to clipboard
+			if m.selectedIdx >= 0 && m.selectedIdx < len(m.filteredItems) {
+				cveID := m.filteredItems[m.selectedIdx].ID
+				if copyToClipboard(cveID) == nil {
+					// Flash feedback in status (would need status field)
+					_ = cveID // Success
+				}
+			}
 		case "a", "esc":
 			m.filterSeverity = ""
 			m.searchQuery = ""
@@ -532,8 +537,16 @@ func (m *Model) applyFiltersLocked() {
 	var filtered []TUIFinding
 	search := strings.ToLower(strings.TrimSpace(m.searchQuery))
 
+	// Parse filterSeverity as comma-separated list (e.g., "critical,high")
+	allowedSeverities := make(map[string]bool)
+	if m.filterSeverity != "" {
+		for _, sev := range strings.Split(m.filterSeverity, ",") {
+			allowedSeverities[strings.TrimSpace(strings.ToLower(sev))] = true
+		}
+	}
+
 	for _, item := range items {
-		if m.filterSeverity != "" && !strings.EqualFold(item.Severity, m.filterSeverity) {
+		if m.filterSeverity != "" && !allowedSeverities[strings.ToLower(item.Severity)] {
 			continue
 		}
 		if search != "" {
@@ -993,9 +1006,19 @@ func (m *Model) renderLazygitExplorer() string {
 		sections = append(sections, m.styles.KeyHint.Render("󰄬 "+m.exportStatus))
 	}
 
-	footer := m.styles.StatusBar.Render(
-		"[Tab] Focus Pane | [w/f] Maximize | [↑/↓/k/j] Navigate/Scroll | [1-5] View | [/] Search | [g] Group | [e] Export | [q] Quit",
-	)
+	// Build context-aware status bar
+	statusParts := []string{
+		"[↑/↓] Navigate",
+		"[y] Copy CVE",
+		"[1-5] Tab",
+		"[c/h/m/l] Filter",
+		"[/] Search",
+		"[g] Group",
+		"[e] Export",
+		"[a] Clear",
+		"[q] Quit",
+	}
+	footer := m.styles.StatusBar.Render(strings.Join(statusParts, " | "))
 	sections = append(sections, footer)
 
 	return strings.Join(sections, "\n")
@@ -1038,6 +1061,45 @@ func groupFindingsByPackage(items []TUIFinding) []TUIFinding {
 		result = append(result, list...)
 	}
 	return result
+}
+
+// copyToClipboard copies text to system clipboard using platform-specific commands.
+func copyToClipboard(text string) error {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		// Try xclip first, fallback to xsel
+		if _, err := exec.LookPath("xclip"); err == nil {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		} else if _, err := exec.LookPath("xsel"); err == nil {
+			cmd = exec.Command("xsel", "--clipboard", "--input")
+		} else {
+			return fmt.Errorf("no clipboard tool found (install xclip or xsel)")
+		}
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	if _, err := stdin.Write([]byte(text)); err != nil {
+		return err
+	}
+
+	stdin.Close()
+	return cmd.Wait()
 }
 
 func groupFindingsBySeverity(items []TUIFinding) []TUIFinding {
