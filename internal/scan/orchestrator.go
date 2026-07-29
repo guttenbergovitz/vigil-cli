@@ -1,10 +1,13 @@
 package scan
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guttenbergovitz/vigil-cli/internal/github"
@@ -24,7 +27,7 @@ type ProgressReporter interface {
 }
 
 // Scan performs the vulnerability scan
-func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lockFilePath string, skipDevDeps bool, reporter ProgressReporter) (*types.ScanResult, error) {
+func Scan(ctx context.Context, absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lockFilePath string, skipDevDeps bool, reporter ProgressReporter) (*types.ScanResult, error) {
 	// Check if lock file path is valid
 	if lockFilePath == "" || lockFile == "" {
 		errMsg := "No lock file found. Please run this in a Node.js/TypeScript project with package-lock.json, yarn.lock, or pnpm-lock.yaml"
@@ -194,9 +197,8 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 	// Initialize npm registry client for temporal filtering
 	npmClient := npm.New("https://registry.npmjs.org", 10)
 
-	// Count nodes to scan and collect them
-	nodesToScan := 0
-	var nodesToScanList []*types.DependencyNode
+	// Count nodes to scan and collect them (pre-allocate)
+	nodesToScanList := make([]*types.DependencyNode, 0, len(graph.Nodes))
 	for _, node := range graph.Nodes {
 		// Skip orphaned nodes (not reachable from root) ONLY for pnpm
 		// For npm/yarn, we don't have proper graph structure (all nodes are marked as root)
@@ -206,30 +208,23 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 		if skipDevDeps && node.Type == types.Development {
 			continue
 		}
-		nodesToScan++
 		nodesToScanList = append(nodesToScanList, node)
 	}
+
+	nodesToScan := len(nodesToScanList)
 
 	// Send initial progress with total
 	if reporter != nil {
 		reporter.Progress(0, nodesToScan, "Starting scan...", 0)
 	}
 
-	totalVulns := 0
-
-	// Scan packages sequentially
-	for current, node := range nodesToScanList {
-		// Send progress update
-		if reporter != nil {
-			reporter.Progress(current+1, nodesToScan, node.Name+"@"+node.Version, totalVulns)
-		}
-
+	// Parallel scanning with worker pool
+	const numWorkers = 10
+	pool := NewWorkerPool(ctx, numWorkers, func(ctx context.Context, node *types.DependencyNode, nodeKey string) ([]types.Vulnerability, error) {
 		// Query OSV API for this package
-		vulns, err := osvClient.Query(node.Name, node.Version)
+		vulns, err := osvClient.QueryWithEcosystem(node.Name, node.Version, graph.Ecosystem)
 		if err != nil {
-			// Log error but continue
-			// fmt.Fprintf(os.Stderr, "DEBUG: Error scanning %s@%s: %v\n", node.Name, node.Version, err)
-			continue
+			return nil, err
 		}
 
 		// Fetch package release date for temporal filtering
@@ -244,7 +239,6 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 			)
 
 			// Get full dependency path from root
-			nodeKey := node.Name + "@" + node.Version
 			dependencyPath := graph.GetVulnerablePath(nodeKey)
 
 			// Try multiple sources for CVSS score (priority: NVD > GitHub > OSV > derived from severity)
@@ -267,6 +261,13 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 						vulns[j].CVSSScore = nvdVuln.CVSSScore
 						vulns[j].CVSSVector = nvdVuln.CVSSVector
 					}
+				}
+
+				// Rate limit NVD API calls (5 req/30s without key, 50 req/30s with key)
+				if nvdAPIKey == "" {
+					time.Sleep(6 * time.Second) // 5 req/30s = 6s between requests
+				} else {
+					time.Sleep(600 * time.Millisecond) // 50 req/30s = 600ms between requests
 				}
 			}
 
@@ -315,28 +316,50 @@ func Scan(absPath, lockFile string, lockType lockfile.LockFileType, lockHash, lo
 
 			// Send vulnerability to TUI for dynamic display
 			if reporter != nil {
-				reporter.Vulnerability(vulns[j], node.Name+"@"+node.Version, dependencyPath)
-			}
-
-			// Rate limit NVD API calls (5 req/30s without key, 50 req/30s with key)
-			if vulns[j].CVEID != "" && strings.HasPrefix(vulns[j].CVEID, "CVE-") {
-				if nvdAPIKey == "" {
-					time.Sleep(6 * time.Second) // 5 req/30s = 6s between requests
-				} else {
-					time.Sleep(600 * time.Millisecond) // 50 req/30s = 600ms between requests
-				}
+				reporter.Vulnerability(vulns[j], nodeKey, dependencyPath)
 			}
 		}
 
 		// Apply temporal filtering (remove vulnerabilities published before package release)
 		vulns = types.FilterTemporalFalsePositives(releasedAt, vulns)
 
-		node.Vulnerabilities = vulns
-		totalVulns += len(vulns)
+		return vulns, nil
+	})
 
-		// Be respectful to the API - add a small delay between requests
-		time.Sleep(10 * time.Millisecond)
+	pool.Start()
+
+	// Submit all jobs
+	for _, node := range nodesToScanList {
+		nodeKey := node.Name + "@" + node.Version
+		pool.Submit(ScanJob{
+			Node:    node,
+			NodeKey: nodeKey,
+		})
 	}
+
+	// Collect results
+	var totalVulns atomic.Int32
+	var scanned atomic.Int32
+	var resultMu sync.Mutex
+
+	go func() {
+		for result := range pool.Results() {
+			resultMu.Lock()
+			if result.Error == nil {
+				result.Node.Vulnerabilities = result.Vulns
+				totalVulns.Add(int32(len(result.Vulns)))
+			}
+			current := scanned.Add(1)
+
+			// Send progress update
+			if reporter != nil {
+				reporter.Progress(int(current), nodesToScan, result.NodeKey, int(totalVulns.Load()))
+			}
+			resultMu.Unlock()
+		}
+	}()
+
+	pool.Close()
 
 	// Build result
 	result := buildScanResultFromGraph(absPath, lockFile, lockHash, graph, lockType)

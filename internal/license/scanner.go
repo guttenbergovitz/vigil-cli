@@ -59,6 +59,10 @@ func ClassifyLicense(lic string) LicenseCategory {
 func AnalyzeGraphLicenses(graph *types.DependencyGraph, licenseMap map[string]string) []LicenseFinding {
 	var findings []LicenseFinding
 
+	if graph == nil {
+		return findings
+	}
+
 	for _, node := range graph.Nodes {
 		key := node.Name + "@" + node.Version
 		lic := "Unknown"

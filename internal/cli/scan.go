@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -129,11 +130,15 @@ func Scan(args []string) error {
 		// We could implement a StdoutReporter here if needed
 	}
 
+	// Create context with timeout for scan
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	// Start scanning in goroutine
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		result, err := scan.Scan(absPath, lockFile, lockType, lockHash, lockFilePath, *skipDevDeps, reporter)
+		result, err := scan.Scan(ctx, absPath, lockFile, lockType, lockHash, lockFilePath, *skipDevDeps, reporter)
 		if err != nil {
 			errorChan <- err
 		} else {
